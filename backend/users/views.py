@@ -59,3 +59,45 @@ class RegistrationView(APIView):
                 'error': 'Registration failed',
                 'details': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Handle password separately to properly hash it
+        password = request.data.get('password')
+        if password:
+            instance.set_password(password)
+            # Remove password from data to prevent it from being overwritten
+            # by the serializer update method
+            request.data.pop('password', None)
+        
+        # Handle department_code if present
+        department_code = request.data.get('department_code')
+        if department_code:
+            from api.models import Department
+            try:
+                department = Department.objects.get(department_code=department_code)
+                instance.department = department
+            except Department.DoesNotExist:
+                return Response(
+                    {"department_code": f"Department with code {department_code} does not exist"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Remove from data to prevent serializer confusion
+            request.data.pop('department_code', None)
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response(serializer.data)
+    
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)

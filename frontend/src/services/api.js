@@ -235,6 +235,37 @@ export const getUsers = async () => {
   }
 };
 
+// Function to update a user
+export const updateUser = async (userId, userData) => {
+  try {
+    // Ensure we're sending the data in the format expected by the backend
+    const formattedData = { ...userData };
+    
+    // Format department if needed
+    if (userData.department_code) {
+      // We're already handling department_code in the backend
+      console.log(`Updating user ${userId} with department code: ${userData.department_code}`);
+    }
+    
+    const response = await api.put(`/users/users/${userId}/`, formattedData);
+    return response.data;
+  } catch (error) {
+    console.error("Error updating user:", error);
+    throw error;
+  }
+};
+
+// Function to delete a user
+export const deleteUser = async (userId) => {
+  try {
+    const response = await api.delete(`/users/users/${userId}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    throw error;
+  }
+};
+
 export const getLecturers = async () => {
   try {
     const response = await api.get("/users/users/");
