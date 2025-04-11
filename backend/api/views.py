@@ -84,17 +84,27 @@ class CourseCreateView(APIView):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-class IsOwnerOrStaff(permissions.BasePermission):
+class IsOwnerOrStaffOrAssignedTo(permissions.BasePermission):
     """
-    Custom permission to only allow owners of an object or staff to access it.
+    Custom permission to allow:
+    1. Staff to access any issue
+    2. Students to access their own issues
+    3. Lecturers/HODs to access issues assigned to them
     """
     def has_object_permission(self, request, view, obj):
         # Staff can access any object
         if request.user.is_staff:
             return True
         
-        # Check if the object has a student attribute and it matches the request user
-        return hasattr(obj, 'student') and obj.student == request.user
+        # Check if the user is the student who created the issue
+        if hasattr(obj, 'student') and obj.student == request.user:
+            return True
+            
+        # Check if the user is the lecturer/HOD assigned to the issue
+        if hasattr(obj, 'assigned_to') and obj.assigned_to == request.user:
+            return True
+            
+        return False
 
 class IssueCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -111,16 +121,26 @@ class IssueViewSet(viewsets.ModelViewSet):
     API endpoint for managing issues.
     """
     serializer_class = IssueSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrStaff]
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrStaffOrAssignedTo]
     
     def get_queryset(self):
         """
-        This view should return a list of all issues for the currently authenticated user,
-        or all issues for staff users.
+        This view should return:
+        1. All issues for staff users
+        2. Own issues for students
+        3. Assigned issues for lecturers/HODs
         """
         user = self.request.user
+        
+        # Staff can see all issues
         if user.is_staff:
             return Issue.objects.all()
+            
+        # Lecturers/HODs can see issues assigned to them
+        if hasattr(user, 'role') and user.role in ['LECTURER', 'HOD']:
+            return Issue.objects.filter(assigned_to=user)
+            
+        # Students can see their own issues
         return Issue.objects.filter(student=user)
     
     def get_serializer_class(self):
@@ -144,15 +164,21 @@ class IssueViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def update_status(self, request, pk=None):
         """
-        Special endpoint for admins to update just the status.
+        Endpoint for updating issue status.
+        Staff and assigned lecturers/HODs can update status.
         """
-        if not request.user.is_staff:
+        issue = self.get_object()
+        
+        # Check if user has permission to update status
+        if not (request.user.is_staff or 
+                (hasattr(request.user, 'role') and 
+                 request.user.role in ['LECTURER', 'HOD'] and 
+                 issue.assigned_to == request.user)):
             return Response(
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        issue = self.get_object()
         new_status = request.data.get('status')
         
         if new_status not in dict(Issue.STATUS_CHOICES):
@@ -194,7 +220,7 @@ class IssueViewSet(viewsets.ModelViewSet):
             assigned_user = User.objects.get(id=user_id)
             
             # Check if the user is a lecturer or HOD
-            if assigned_user.role not in ['LECTURER', 'HOD']:
+            if not hasattr(assigned_user, 'role') or assigned_user.role not in ['LECTURER', 'HOD']:
                 return Response(
                     {"detail": "Issues can only be assigned to lecturers or heads of department"},
                     status=status.HTTP_400_BAD_REQUEST

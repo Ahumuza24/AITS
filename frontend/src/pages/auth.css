@@ -89,7 +89,7 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  font-size: 100px;
+  font-size: 50px;
 }
 
 .auth-header p {

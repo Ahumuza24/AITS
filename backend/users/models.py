@@ -11,7 +11,7 @@ class UserManager(BaseUserManager):
             raise ValueError('Email is required')
         email = self.normalize_email(email)
         
-        # Generate a random username since we still need it for Django's User model
+        
         if 'username' not in extra_fields or not extra_fields['username']:
             # Generate username based on email prefix + random string
             username = email.split('@')[0] + get_random_string(length=8)

@@ -62,7 +62,7 @@ function Login({ setUser }) {
                 onChange={(e) => setEmail(e.target.value)}
                 fullWidth
                 variant="outlined"
-                placeholder="your.email@university.edu"
+                placeholder="example@email.com"
                 className="auth-input"
                 required
               />

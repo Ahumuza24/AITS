@@ -43,7 +43,9 @@ import {
   getDepartmentDetails,
   markIssueAsSolved,
   getLecturerIssues,
-  logout
+  logout,
+  getDepartments,
+  getUsers
 } from '../../services/api';
 import Popper from "@mui/material/Popper";
 import Paper from "@mui/material/Paper";
@@ -108,10 +110,32 @@ const HeadOfDepartment = ({ user }) => {
   useEffect(() => {
     if (user) {
       // Get department ID from user object, checking all possible formats
-      let departmentId = 
-        typeof user.department === 'object' ? user.department?.id :
-        typeof user.department === 'number' || typeof user.department === 'string' ? user.department : 
-        null;
+      let departmentId = null;
+      
+      // Log user object to help debugging
+      console.log("User object:", JSON.stringify(user));
+      
+      // Handle all possible formats of department field
+      if (typeof user.department === 'object' && user.department !== null) {
+        departmentId = user.department.id;
+        console.log("Found department ID from object:", departmentId);
+      } else if (typeof user.department === 'number') {
+        departmentId = user.department;
+        console.log("Found department ID as number:", departmentId);
+      } else if (typeof user.department === 'string') {
+        departmentId = user.department;
+        console.log("Found department ID as string:", departmentId);
+      } else if (user.department_id) {
+        // Sometimes the field may be named department_id instead
+        departmentId = user.department_id;
+        console.log("Found department_id:", departmentId);
+      } else if (user.role === 'HOD' && user.id) {
+        // For HOD users, we might need to fetch their department info separately
+        // For now, use their user ID to look up the department
+        console.log("User is HOD but no department info, will try to fetch separately");
+        getDepartmentForHOD(user.id);
+        return;
+      }
       
       if (!departmentId) {
         console.error("No department ID found in user object");
@@ -201,6 +225,17 @@ const HeadOfDepartment = ({ user }) => {
     setError(null);
     setFetchingError(null);
     
+    if (!departmentId) {
+      console.error("fetchDepartmentData called with no department ID");
+      setError("Missing department ID");
+      setLoading(false);
+      return;
+    }
+    
+    // Convert to string for consistent comparison
+    const deptId = String(departmentId);
+    console.log(`Fetching data for department ID: ${deptId}`);
+    
     try {
       // Fetch general dashboard data - don't await, start all requests in parallel
       const dashboardPromise = getDashboardData().catch(error => {
@@ -209,25 +244,25 @@ const HeadOfDepartment = ({ user }) => {
       });
       
       // Fetch department details
-      const detailsPromise = getDepartmentDetails(departmentId).catch(error => {
+      const detailsPromise = getDepartmentDetails(deptId).catch(error => {
         console.error("Error fetching department details:", error);
         return { department: null, error: error.message };
       });
       
       // Fetch department issues
-      const issuesPromise = getDepartmentIssues(departmentId).catch(error => {
+      const issuesPromise = getDepartmentIssues(deptId).catch(error => {
         console.error("Error fetching department issues:", error);
         return { issues: [], error: error.message };
       });
       
       // Fetch department staff
-      const staffPromise = getDepartmentStaff(departmentId).catch(error => {
+      const staffPromise = getDepartmentStaff(deptId).catch(error => {
         console.error("Error fetching department staff:", error);
         return { staff: [], error: error.message };
       });
       
       // Fetch department courses
-      const coursesPromise = getDepartmentCourses(departmentId).catch(error => {
+      const coursesPromise = getDepartmentCourses(deptId).catch(error => {
         console.error("Error fetching department courses:", error);
         return { courses: [], error: error.message };
       });
@@ -254,7 +289,11 @@ const HeadOfDepartment = ({ user }) => {
         console.error("Error fetching department details:", deptError);
         setFetchingError(prevError => prevError ? `${prevError}; ${deptError}` : deptError);
       } else if (department) {
+        console.log("Successfully loaded department details:", department);
         setDepartmentDetails(department);
+      } else {
+        console.error("No department details returned");
+        setFetchingError(prevError => prevError ? `${prevError}; No department details returned` : "No department details returned");
       }
       
       if (issuesError) {
@@ -283,6 +322,49 @@ const HeadOfDepartment = ({ user }) => {
       console.error('Error fetching department data:', err);
       setError(`Error fetching data: ${err.message}`);
     } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to get department for HOD if not directly available in user object
+  const getDepartmentForHOD = async (userId) => {
+    try {
+      setLoading(true);
+      console.log("Fetching department for HOD with user ID:", userId);
+      
+      // Get all departments
+      const departments = await getDepartments();
+      console.log("All departments:", departments);
+      
+      // Get all users to find the HOD's department
+      const users = await getUsers();
+      const currentUser = users.find(u => u.id === userId);
+      console.log("Current user from users API:", currentUser);
+      
+      if (currentUser && currentUser.department) {
+        let hodDeptId = null;
+        
+        if (typeof currentUser.department === 'object') {
+          hodDeptId = currentUser.department.id;
+        } else {
+          hodDeptId = currentUser.department;
+        }
+        
+        console.log("Found HOD department ID:", hodDeptId);
+        fetchDepartmentData(hodDeptId);
+      } else {
+        // If we still can't find the department, try the first department as fallback
+        console.warn("Could not find HOD department, using first department as fallback");
+        if (departments && departments.length > 0) {
+          fetchDepartmentData(departments[0].id);
+        } else {
+          setError("Could not determine department for Head of Department. Please contact administrator.");
+          setLoading(false);
+        }
+      }
+    } catch (err) {
+      console.error("Error getting department for HOD:", err);
+      setError("Error loading department information. Please try again later.");
       setLoading(false);
     }
   };
@@ -509,6 +591,26 @@ const HeadOfDepartment = ({ user }) => {
           .slice(0, 5)
       : [];
 
+    // Get department name and code with proper field name handling
+    const getDepartmentName = () => {
+      if (!departmentDetails) return 'N/A';
+      // Handle different field naming conventions
+      return departmentDetails.department_name || departmentDetails.name || 'N/A';
+    };
+
+    const getDepartmentCode = () => {
+      if (!departmentDetails) return 'N/A';
+      // Handle different field naming conventions
+      return departmentDetails.department_code || departmentDetails.code || 'N/A';
+    };
+
+    const getCollegeName = () => {
+      if (!departmentDetails) return 'N/A';
+      if (!departmentDetails.college) return 'N/A';
+      // Handle different field naming conventions
+      return departmentDetails.college.name || departmentDetails.college.college_name || 'N/A';
+    };
+
     return (
       <div>
        
@@ -636,15 +738,15 @@ const HeadOfDepartment = ({ user }) => {
                     <tbody>
                       <tr>
                         <td width="40%"><strong>Department Name</strong></td>
-                        <td>{departmentDetails.name}</td>
+                        <td>{getDepartmentName()}</td>
                       </tr>
                       <tr>
                         <td><strong>Department Code</strong></td>
-                        <td>{departmentDetails.code}</td>
+                        <td>{getDepartmentCode()}</td>
                       </tr>
                       <tr>
                         <td><strong>College</strong></td>
-                        <td>{departmentDetails.college?.name || 'N/A'}</td>
+                        <td>{getCollegeName()}</td>
                       </tr>
                       <tr>
                         <td><strong>Staff Count</strong></td>
@@ -658,6 +760,13 @@ const HeadOfDepartment = ({ user }) => {
                   </Table>
                 ) : (
                   <p className="text-muted">No department details available.</p>
+                )}
+                {/* Add debug info when in development */}
+                {process.env.NODE_ENV !== 'production' && departmentDetails && (
+                  <div className="mt-3 p-3 bg-light rounded">
+                    <h6>Debug Info:</h6>
+                    <pre className="small">{JSON.stringify(departmentDetails, null, 2)}</pre>
+                  </div>
                 )}
               </Card.Body>
             </Card>

@@ -18,7 +18,8 @@ import {
   FaCheckCircle,
   FaRedo,
   FaPencilAlt,
-  FaSearch
+  FaSearch,
+  FaCog
 } from "react-icons/fa";
 import { BsCheck2Circle, BsClockHistory, BsHourglassSplit } from "react-icons/bs";
 import Popper from "@mui/material/Popper";
@@ -836,6 +837,7 @@ const Issues = ({ user }) => {
   const [updateSuccess, setUpdateSuccess] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState(null);
   
   // Get issue status icon
   const getStatusIcon = (status) => {
@@ -854,61 +856,43 @@ const Issues = ({ user }) => {
   useEffect(() => {
     const fetchAssignedIssues = async () => {
       setIsLoading(true);
+      setError(null);
+      
       try {
-        const allIssues = await getIssues();
-        console.log("All issues:", allIssues);
-        console.log("Current user:", user);
-        
-        // Try a direct API call to get lecturer-specific issues
-        try {
-          // This could be implemented on the backend for better performance
-          const lecturerIssuesResponse = await fetch(`http://localhost:8000/api/issues/?assigned_to=${user.id}`, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-          });
-          
-          if (lecturerIssuesResponse.ok) {
-            const lecturerIssuesData = await lecturerIssuesResponse.json();
-            console.log("Direct API call for lecturer issues:", lecturerIssuesData);
-            if (Array.isArray(lecturerIssuesData) && lecturerIssuesData.length > 0) {
-              setAssignedIssues(lecturerIssuesData);
-              return; // Skip the filtering below if we got data from the API
-            }
+        // Use the issues endpoint directly - it will filter based on user permissions
+        const response = await fetch('http://localhost:8000/api/issues/', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json'
           }
-        } catch (directApiError) {
-          console.log("Direct API call failed, falling back to client-side filtering:", directApiError);
-        }
-        
-        // Filter issues assigned to this lecturer - handle different possible response formats
-        const lecturerIssues = allIssues.filter(issue => {
-          // Check the assigned_to field structure and handle different formats
-          if (!issue.assigned_to) return false;
-          
-          // If assigned_to is an object with id
-          if (typeof issue.assigned_to === 'object' && issue.assigned_to.id) {
-            return issue.assigned_to.id === user.id;
-          }
-          
-          // If assigned_to is just the ID itself
-          if (typeof issue.assigned_to === 'number' || typeof issue.assigned_to === 'string') {
-            return issue.assigned_to.toString() === user.id.toString();
-          }
-          
-          return false;
         });
         
-        console.log("Filtered lecturer issues:", lecturerIssues);
-        setAssignedIssues(lecturerIssues);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Fetched issues:", data);
+        
+        // Ensure we have an array of issues
+        if (Array.isArray(data)) {
+          setAssignedIssues(data);
+        } else {
+          console.error("Unexpected data format:", data);
+          setError("Received unexpected data format from server");
+        }
       } catch (error) {
         console.error("Error fetching assigned issues:", error);
+        setError("Failed to load assigned issues. Please try again later.");
       } finally {
         setIsLoading(false);
       }
     };
     
-    fetchAssignedIssues();
-  }, [user.id]);
+    if (user?.id) {
+      fetchAssignedIssues();
+    }
+  }, [user?.id]);
   
   const handleViewDetails = (issue) => {
     setSelectedIssue(issue);
@@ -926,26 +910,34 @@ const Issues = ({ user }) => {
         body: JSON.stringify({ status: newStatus })
       });
       
-      if (response.ok) {
-        // Update the issue in the local state
-        const updatedIssues = assignedIssues.map(issue => {
-          if (issue.id === issueId) {
-            return { ...issue, status: newStatus };
-          }
-          return issue;
-        });
-        
-        setAssignedIssues(updatedIssues);
-        setUpdateSuccess('Status updated successfully!');
-        setTimeout(() => setUpdateSuccess(''), 3000);
-        
-        // If in detail view, update the selected issue
-        if (selectedIssue && selectedIssue.id === issueId) {
-          setSelectedIssue({...selectedIssue, status: newStatus});
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      
+      const updatedIssue = await response.json();
+      
+      // Update the issue in the local state
+      setAssignedIssues(prevIssues => 
+        prevIssues.map(issue => 
+          issue.id === issueId ? updatedIssue : issue
+        )
+      );
+      
+      setUpdateSuccess('Status updated successfully!');
+      
+      // If in detail view, update the selected issue
+      if (selectedIssue && selectedIssue.id === issueId) {
+        setSelectedIssue(updatedIssue);
+      }
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setUpdateSuccess(''), 3000);
     } catch (error) {
       console.error('Error updating issue status:', error);
+      setError('Failed to update issue status. Please try again.');
+      
+      // Clear error message after 3 seconds
+      setTimeout(() => setError(null), 3000);
     }
   };
   
@@ -965,20 +957,20 @@ const Issues = ({ user }) => {
   });
   
   return (
-  <div>
-    <div className="dashboard-grid">
+    <div>
+      <div className="dashboard-grid">
         <div className="card dashboard-card">
           <div className="card-body">
             <div className="d-flex align-items-center">
               <div className="icon-box bg-primary">
                 <FaClipboardList />
-      </div>
+              </div>
               <div className="ms-3">
                 <h6 className="card-subtitle text-muted">Total Assigned</h6>
                 <h4 className="card-title mb-0">{assignedIssues.length}</h4>
-      </div>
-      </div>
-    </div>
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="card dashboard-card">
@@ -1020,6 +1012,10 @@ const Issues = ({ user }) => {
         </div>
         
         <div className="card-body">
+          {error && (
+            <div className="alert alert-danger">{error}</div>
+          )}
+          
           {updateSuccess && (
             <div className="alert alert-success">{updateSuccess}</div>
           )}
@@ -1090,7 +1086,7 @@ const Issues = ({ user }) => {
                 </thead>
                 <tbody>
                   {filteredIssues.map(issue => (
-                    <tr key={issue.id} className="issue-row" onClick={() => handleViewDetails(issue)}>
+                    <tr key={issue.id} className="issue-row">
                       <td className="text-truncate" style={{maxWidth: "200px"}}>{issue.title}</td>
                       <td className="text-truncate" style={{maxWidth: "150px"}}>
                         {issue.student?.email || "N/A"}
@@ -1110,17 +1106,14 @@ const Issues = ({ user }) => {
                         </span>
                       </td>
                       <td>{new Date(issue.created_at).toLocaleDateString()}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td>
                         <div className="d-flex">
                           <Button 
                             variant="outline-info" 
                             size="sm" 
                             className="me-1"
                             title="View Details"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleViewDetails(issue);
-                            }}
+                            onClick={() => handleViewDetails(issue)}
                           >
                             <FaEye />
                           </Button>
@@ -1129,10 +1122,7 @@ const Issues = ({ user }) => {
                               variant="outline-success" 
                               size="sm"
                               title="Mark as Solved"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateIssueStatus(issue.id, 'Solved');
-                              }}
+                              onClick={() => updateIssueStatus(issue.id, 'Solved')}
                             >
                               <FaCheckCircle />
                             </Button>
@@ -1141,10 +1131,7 @@ const Issues = ({ user }) => {
                               variant="outline-warning" 
                               size="sm"
                               title="Reopen Issue"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateIssueStatus(issue.id, 'InProgress');
-                              }}
+                              onClick={() => updateIssueStatus(issue.id, 'InProgress')}
                             >
                               <FaRedo />
                             </Button>
@@ -1297,8 +1284,8 @@ const Issues = ({ user }) => {
           )}
         </Modal.Body>
       </Modal>
-  </div>
-);
+    </div>
+  );
 };
 
 const SettingsContent = ({ user }) => (

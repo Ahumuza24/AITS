@@ -469,7 +469,7 @@ const DashboardContent = ({ user, myIssues }) => {
                   {recentIssues.map(issue => (
                     <div key={issue.id} className="issue-item p-3 border-bottom">
                       <div className="d-flex justify-content-between align-items-start">
-                        <div>
+  <div>
                           <h5 className="mb-1">{issue.title}</h5>
                           <div className="d-flex align-items-center mb-2">
                             <span className="badge bg-secondary me-2">
@@ -533,7 +533,7 @@ const DashboardContent = ({ user, myIssues }) => {
         </div>
 
         <div className="col-md-5">
-          <div className="card">
+    <div className="card">
             <div className="card-header">
               <h5 className="mb-0"><FaInfoCircle className="me-2" /> Issue Status</h5>
             </div>
@@ -763,9 +763,9 @@ const DashboardContent = ({ user, myIssues }) => {
                   </div>
                 </div>
               </div>
-            </div>
+    </div>
 
-            <div className="card">
+    <div className="card">
               <div className="card-header bg-light">
                 <h5 className="mb-0 small text-uppercase">Description</h5>
               </div>
@@ -829,18 +829,18 @@ const Updates = () => {
 
   if (updates.length === 0) {
     return (
-      <div className="card">
+    <div className="card">
         <div className="card-body text-center p-5">
           <FaComments size={48} className="text-muted mb-3" />
           <h4>No Updates Available</h4>
           <p className="text-muted">There are no updates or announcements at this time.</p>
-        </div>
-      </div>
-    );
+    </div>
+  </div>
+);
   }
 
   return (
-    <div>
+  <div>
       {updates.map(update => (
         <div className="card mb-3" key={update.id}>
           <div className="card-header d-flex justify-content-between align-items-center">
