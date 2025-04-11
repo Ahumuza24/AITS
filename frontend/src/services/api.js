@@ -248,6 +248,13 @@ export const updateUser = async (userId, userData) => {
     }
     
     const response = await api.put(`/users/users/${userId}/`, formattedData);
+    
+    // If the update was successful, fetch the complete user data to ensure we have all relationships
+    if (response.status === 200) {
+      const updatedUserResponse = await api.get(`/users/users/${userId}/`);
+      return updatedUserResponse.data;
+    }
+    
     return response.data;
   } catch (error) {
     console.error("Error updating user:", error);

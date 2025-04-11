@@ -7,6 +7,7 @@ import {
   getCourses,
   logout,
   register,
+  updateUser,
 } from "../../services/api";
 import { useNavigate } from "react-router-dom";
 import {
@@ -729,68 +730,58 @@ const UsersContent = ({ users }) => {
           delete userData.password;
         }
         
-        // Make the API call to update the user
-        const response = await fetch(`http://localhost:8000/api/users/users/${editUserId}/`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-          },
-          body: JSON.stringify(userData)
-        });
-        
-        if (!response.ok) {
-          throw new Error("Failed to update user");
-        }
-        
-        const updatedUser = await response.json();
+        // Use the updateUser API service
+        const updatedUser = await updateUser(editUserId, userData);
         setFormSuccess("User updated successfully!");
         
-        // Get the department name for display
-        let departmentObj = null;
-        if (userData.department_code) {
-          const dept = departments.find(d => d.department_code === userData.department_code);
-          if (dept) {
-            departmentObj = {
-              id: dept.id,
-              department_name: dept.department_name,
-              department_code: dept.department_code
-            };
-          }
-        }
+        // Get the department from the updated user response
+        // The API now returns the full user object with relationships
         
-        // Update local state with the department object attached for immediate UI update
+        // Update local state with the updated user data
         setUserList(userList.map(u => {
           if (u.id === editUserId) {
-            return { 
-              ...u, 
-              ...updatedUser,
-              department: departmentObj // Update with the full department object
-            };
+            return updatedUser;
           }
           return u;
         }));
         
         resetForm();
         setShowAddUserForm(false);
+        
+        // Refresh user list to ensure all data is current
+        setTimeout(() => refreshUserList(), 500);
       } else {
         // Create new user
         const response = await register(newUser);
         setFormSuccess("User created successfully!");
         
-        // Update the local state
-        setUserList([...userList, response]);
+        // Refresh the user list to get the complete user data with relationships
+        setTimeout(() => refreshUserList(), 500);
         
         resetForm();
         setShowAddUserForm(false);
       }
     } catch (error) {
-      setFormError(
-        error.response?.data?.details?.email?.[0] || 
-        error.response?.data?.department_code || 
-        error.response?.data?.detail ||
-        "Error saving user. Please try again."
-      );
+      console.error("Error saving user:", error);
+      // Handle different error formats
+      if (error.response && error.response.data) {
+        const responseData = error.response.data;
+        
+        if (responseData.details && responseData.details.email) {
+          setFormError(responseData.details.email[0]);
+        } else if (responseData.department_code) {
+          setFormError(responseData.department_code);
+        } else if (responseData.detail) {
+          setFormError(responseData.detail);
+        } else if (typeof responseData === 'string') {
+          setFormError(responseData);
+        } else {
+          // If we can't extract a specific error message, use a generic one
+          setFormError("Error saving user. Please check your input and try again.");
+        }
+      } else {
+        setFormError("Error connecting to the server. Please try again later.");
+      }
     }
   };
 
