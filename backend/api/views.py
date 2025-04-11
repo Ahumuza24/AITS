@@ -3,11 +3,16 @@ from rest_framework import status, permissions, viewsets
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import College, Department, Course, Issue
-from .serializers import CollegeSerializer, DepartmentSerializer, CourseSerializer, IssueSerializer, IssueCreateSerializer
+from .models import College, Department, Course, Issue, Notification
+from .serializers import CollegeSerializer, DepartmentSerializer, CourseSerializer, IssueSerializer, IssueCreateSerializer, NotificationSerializer
 from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.decorators import action
 from rest_framework.decorators import api_view, permission_classes
+from django.db.models import Count
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 class CollegeListView(APIView):
     permission_classes = [AllowAny]
@@ -355,6 +360,17 @@ class IssueViewSet(viewsets.ModelViewSet):
         # Return the complete issue object using the standard serializer
         issue = serializer.instance
         response_serializer = IssueSerializer(issue)
+        
+        # Create notification for admin users
+        admin_users = User.objects.filter(is_staff=True) | User.objects.filter(role='ADMIN')
+        for admin in admin_users:
+            Notification.objects.create(
+                user=admin,
+                issue=issue,
+                message=f"New issue created: {issue.title}",
+                notification_type='ISSUE_CREATED'
+            )
+        
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
     
     @action(detail=True, methods=['patch'])
@@ -366,6 +382,7 @@ class IssueViewSet(viewsets.ModelViewSet):
         - Lecturers and HODs can update issues assigned to them
         """
         issue = self.get_object()
+        old_status = issue.status
         new_status = request.data.get('status')
         
         # Check permissions - allow lecturers/HODs to update status of issues assigned to them
@@ -389,6 +406,26 @@ class IssueViewSet(viewsets.ModelViewSet):
         
         issue.status = new_status
         issue.save()
+        
+        # Create notification for student when status changes
+        if old_status != new_status:
+            # Create notification for student
+            Notification.objects.create(
+                user=issue.student,
+                issue=issue,
+                message=f"Your issue '{issue.title}' status changed to {new_status}",
+                notification_type='STATUS_CHANGED'
+            )
+            
+            # Create notification for assigned staff if exists
+            if issue.assigned_to and issue.assigned_to != user:
+                Notification.objects.create(
+                    user=issue.assigned_to,
+                    issue=issue,
+                    message=f"Issue '{issue.title}' status changed to {new_status}",
+                    notification_type='STATUS_CHANGED'
+                )
+        
         serializer = self.get_serializer(issue)
         return Response(serializer.data)
 
@@ -430,6 +467,22 @@ class IssueViewSet(viewsets.ModelViewSet):
             issue.assigned_to = assigned_user
             issue.status = 'InProgress'  # Update status to in progress
             issue.save()
+            
+            # Create notification for the assigned staff
+            Notification.objects.create(
+                user=assigned_user,
+                issue=issue,
+                message=f"Issue '{issue.title}' has been assigned to you",
+                notification_type='ISSUE_ASSIGNED'
+            )
+            
+            # Notify student that their issue has been assigned
+            Notification.objects.create(
+                user=issue.student,
+                issue=issue,
+                message=f"Your issue '{issue.title}' has been assigned to {assigned_user.first_name} {assigned_user.last_name}",
+                notification_type='ISSUE_ASSIGNED'
+            )
             
             serializer = self.get_serializer(issue)
             return Response(serializer.data)
@@ -492,86 +545,222 @@ def get_staff_issues(request, user_id):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-# class StudentDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
+class StudentDashboardView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
     
-#     def get(self, request):
-#         if not request.user.is_student():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+    def get(self, request):
+        if not request.user.is_student():
+            return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
         
-#         # Mock data for student dashboard
-#         data = {
-#             "courses": [
-#                 {"id": 1, "title": "Introduction to Programming", "grade": "A-"},
-#                 {"id": 2, "title": "Data Structures", "grade": "B+"},
-#                 {"id": 3, "title": "Algorithms", "grade": "In Progress"}
-#             ],
-#             "announcements": [
-#                 {"id": 1, "title": "Exam Schedule Posted", "date": "2025-03-05"},
-#                 {"id": 2, "title": "Lab Submission Deadline Extended", "date": "2025-03-08"}
-#             ],
-#             "upcoming_deadlines": [
-#                 {"id": 1, "title": "Programming Assignment 3", "due_date": "2025-03-15"},
-#                 {"id": 2, "title": "Group Project Proposal", "due_date": "2025-03-20"}
-#             ]
-#         }
-#         return Response(data)
+        # Get student's issues
+        issues = Issue.objects.filter(student=request.user)
+        
+        # Get courses student has issues in
+        course_ids = issues.values_list('course', flat=True).distinct()
+        courses = Course.objects.filter(id__in=course_ids)
+        
+        # Calculate issue stats
+        pending_issues = issues.filter(status='Pending').count()
+        in_progress_issues = issues.filter(status='InProgress').count()
+        solved_issues = issues.filter(status='Solved').count()
+        
+        # Format data
+        data = {
+            "user": {
+                "id": request.user.id,
+                "email": request.user.email,
+                "first_name": request.user.first_name,
+                "last_name": request.user.last_name,
+                "role": request.user.role
+            },
+            "courses": [
+                {
+                    "id": course.id,
+                    "course_name": course.course_name,
+                    "course_code": course.course_code,
+                    "department": {
+                        "id": course.department.id,
+                        "department_name": course.department.department_name
+                    } if course.department else None
+                } for course in courses
+            ],
+            "issues": [
+                {
+                    "id": issue.id,
+                    "title": issue.title,
+                    "issue_type": issue.issue_type,
+                    "status": issue.status,
+                    "created_at": issue.created_at,
+                    "course": {
+                        "id": issue.course.id,
+                        "course_name": issue.course.course_name,
+                        "course_code": issue.course.course_code
+                    }
+                } for issue in issues
+            ],
+            "issue_statistics": {
+                "total": issues.count(),
+                "pending": pending_issues,
+                "in_progress": in_progress_issues,
+                "solved": solved_issues
+            }
+        }
+        return Response(data)
 
-# class LecturerDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
+class LecturerDashboardView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
     
-#     def get(self, request):
-#         if not request.user.is_lecturer():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+    def get(self, request):
+        if not request.user.is_lecturer() and not request.user.is_hod():
+            return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
         
-#         # Mock data for lecturer dashboard
-#         data = {
-#             "courses": [
-#                 {"id": 1, "title": "Introduction to Programming", "students": 45},
-#                 {"id": 2, "title": "Advanced Web Development", "students": 30}
-#             ],
-#             "upcoming_classes": [
-#                 {"id": 1, "course": "Introduction to Programming", "time": "Monday, 10:00 AM"},
-#                 {"id": 2, "course": "Advanced Web Development", "time": "Wednesday, 2:00 PM"}
-#             ],
-#             "pending_grading": [
-#                 {"id": 1, "title": "Assignment 2", "submissions": 42, "course": "Introduction to Programming"},
-#                 {"id": 2, "title": "Midterm Exam", "submissions": 28, "course": "Advanced Web Development"}
-#             ]
-#         }
-#         return Response(data)
+        # Get issues assigned to the lecturer
+        assigned_issues = Issue.objects.filter(assigned_to=request.user)
+        
+        # Get courses for which issues are assigned
+        course_ids = assigned_issues.values_list('course', flat=True).distinct()
+        courses = Course.objects.filter(id__in=course_ids)
+        
+        # Calculate issue stats
+        pending_issues = assigned_issues.filter(status='Pending').count()
+        in_progress_issues = assigned_issues.filter(status='InProgress').count()
+        solved_issues = assigned_issues.filter(status='Solved').count()
+        
+        # Format data
+        data = {
+            "user": {
+                "id": request.user.id,
+                "email": request.user.email,
+                "first_name": request.user.first_name,
+                "last_name": request.user.last_name,
+                "role": request.user.role
+            },
+            "assigned_issues": [
+                {
+                    "id": issue.id,
+                    "title": issue.title,
+                    "issue_type": issue.issue_type,
+                    "status": issue.status,
+                    "created_at": issue.created_at,
+                    "course": {
+                        "id": issue.course.id,
+                        "course_name": issue.course.course_name,
+                        "course_code": issue.course.course_code
+                    },
+                    "student": {
+                        "id": issue.student.id,
+                        "email": issue.student.email,
+                        "first_name": issue.student.first_name,
+                        "last_name": issue.student.last_name
+                    }
+                } for issue in assigned_issues
+            ],
+            "courses": [
+                {
+                    "id": course.id,
+                    "course_name": course.course_name,
+                    "course_code": course.course_code,
+                    "department": {
+                        "id": course.department.id,
+                        "department_name": course.department.department_name
+                    } if course.department else None
+                } for course in courses
+            ],
+            "issue_statistics": {
+                "total": assigned_issues.count(),
+                "pending": pending_issues,
+                "in_progress": in_progress_issues,
+                "solved": solved_issues
+            }
+        }
+        return Response(data)
 
-# class AdminDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
+class AdminDashboardView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
     
-#     def get(self, request):
-#         if not request.user.is_admin():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+    def get(self, request):
+        if not request.user.is_admin() and not request.user.is_staff:
+            return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
         
-#         # Mock data for admin dashboard
-#         data = {
-#             "users": {
-#                 "total": 540,
-#                 "students": 500,
-#                 "lecturers": 35,
-#                 "admins": 5
-#             },
-#             "courses": {
-#                 "active": 42,
-#                 "archived": 15
-#             },
-#             "system_health": {
-#                 "status": "Good",
-#                 "uptime": "99.8%",
-#                 "recent_issues": []
-#             },
-#             "recent_activities": [
-#                 {"id": 1, "type": "User Registration", "details": "5 new users registered", "date": "2025-03-08"},
-#                 {"id": 2, "type": "Course Created", "details": "New course: Machine Learning", "date": "2025-03-07"},
-#                 {"id": 3, "type": "Grade Update", "details": "Introduction to Programming grades posted", "date": "2025-03-06"}
-#             ]
-#         }
-#         return Response(data)
+        # Get all users
+        User = get_user_model()
+        users = User.objects.all()
+        student_count = users.filter(role='STUDENT').count()
+        lecturer_count = users.filter(role='LECTURER').count()
+        hod_count = users.filter(role='HOD').count()
+        admin_count = users.filter(role='ADMIN').count()
+        
+        # Get all departments
+        departments = Department.objects.all()
+        
+        # Get all issues
+        issues = Issue.objects.all()
+        pending_issues = issues.filter(status='Pending').count()
+        in_progress_issues = issues.filter(status='InProgress').count()
+        solved_issues = issues.filter(status='Solved').count()
+        
+        # Get all courses
+        courses = Course.objects.all()
+        
+        # Recent issues (last 10)
+        recent_issues = Issue.objects.order_by('-created_at')[:10]
+        
+        # Format data
+        data = {
+            "user": {
+                "id": request.user.id,
+                "email": request.user.email,
+                "first_name": request.user.first_name,
+                "last_name": request.user.last_name,
+                "role": request.user.role
+            },
+            "users": [
+                {
+                    "id": user.id,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "role": user.role
+                } for user in users
+            ],
+            "departments": [
+                {
+                    "id": dept.id,
+                    "department_name": dept.department_name,
+                    "department_code": dept.department_code
+                } for dept in departments
+            ],
+            "statistics": {
+                "users": {
+                    "total": users.count(),
+                    "students": student_count,
+                    "lecturers": lecturer_count,
+                    "hods": hod_count,
+                    "admins": admin_count
+                },
+                "issues": {
+                    "total": issues.count(),
+                    "pending": pending_issues,
+                    "in_progress": in_progress_issues,
+                    "solved": solved_issues
+                },
+                "departments": departments.count(),
+                "courses": courses.count()
+            },
+            "recent_issues": [
+                {
+                    "id": issue.id,
+                    "title": issue.title,
+                    "status": issue.status,
+                    "created_at": issue.created_at,
+                    "student": {
+                        "id": issue.student.id,
+                        "email": issue.student.email
+                    }
+                } for issue in recent_issues
+            ]
+        }
+        return Response(data)
 
 # New Views for HOD access - Add these at the end of the file
 class DepartmentIssuesView(APIView):
@@ -872,4 +1061,103 @@ class HODDepartmentDetailView(APIView):
             return Response(
                 {"detail": "Department not found."},
                 status=status.HTTP_404_NOT_FOUND
+            )
+
+# Add an API endpoint for Notifications
+class NotificationViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing notifications.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """
+        Return only notifications for the current user.
+        """
+        return Notification.objects.filter(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        """
+        Mark a notification as read.
+        """
+        notification = self.get_object()
+        notification.read = True
+        notification.save()
+        return Response({"status": "success"})
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_as_read(self, request):
+        """
+        Mark all notifications for the current user as read.
+        """
+        Notification.objects.filter(user=request.user, read=False).update(read=True)
+        return Response({"status": "success"})
+
+# Signal handler for issue assignment in the HOD view
+@receiver(post_save, sender=Issue)
+def handle_issue_assignment(sender, instance, created, **kwargs):
+    """
+    Signal handler for issue assignments through HOD view.
+    Creates notifications when issues are assigned or status changes.
+    """
+    User = get_user_model()
+    
+    # When a new issue is created
+    if created:
+        # Notify admin users about new issue
+        admin_users = User.objects.filter(role='ADMIN')
+        for admin in admin_users:
+            Notification.objects.create(
+                user=admin,
+                issue=instance,
+                message=f"New issue '{instance.title}' has been created by {instance.student.username if instance.student else 'a user'}",
+                notification_type='NEW_ISSUE'
+            )
+        
+        # Notify department HODs if applicable
+        if instance.course and instance.course.department:
+            hod_users = User.objects.filter(
+                role='HOD', 
+                department=instance.course.department
+            )
+            for hod in hod_users:
+                Notification.objects.create(
+                    user=hod,
+                    issue=instance,
+                    message=f"New issue '{instance.title}' has been created for {instance.course.course_name}",
+                    notification_type='NEW_ISSUE'
+                )
+    
+    # When an issue is assigned
+    elif instance.assigned_to:
+        # Check if this is a new assignment (we'd need to store previous state to accurately detect this)
+        # For simplicity, we'll always check if there's an assigned_to user set
+        
+        # Create notification for the assigned staff if not already notified
+        recent_notifications = Notification.objects.filter(
+            user=instance.assigned_to,
+            issue=instance,
+            notification_type='ISSUE_ASSIGNED',
+            created_at__gt=timezone.now() - timezone.timedelta(minutes=5)
+        )
+        
+        if not recent_notifications.exists():
+            Notification.objects.create(
+                user=instance.assigned_to,
+                issue=instance,
+                message=f"Issue '{instance.title}' has been assigned to you",
+                notification_type='ISSUE_ASSIGNED'
+            )
+    
+    # When issue status changes
+    if not created and instance.status:
+        # Notify the student who created the issue
+        if instance.student:
+            Notification.objects.create(
+                user=instance.student,
+                issue=instance,
+                message=f"Your issue '{instance.title}' status has been updated to {instance.status}",
+                notification_type='STATUS_UPDATE'
             )

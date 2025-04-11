@@ -1,7 +1,7 @@
 # backend/api/serializers.py
 from rest_framework import serializers
 from users.models import User
-from .models import College, Department, Course, Issue
+from .models import College, Department, Course, Issue, Notification
 from users.serializers import UserSerializer
 
 # Course related serializers
@@ -137,3 +137,9 @@ class IssueCreateSerializer(serializers.ModelSerializer):
         
         # Create and return the issue
         return Issue.objects.create(**validated_data)
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'user', 'issue', 'message', 'notification_type', 'created_at', 'read']
+        read_only_fields = ['created_at']

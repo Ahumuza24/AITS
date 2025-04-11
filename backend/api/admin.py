@@ -1,6 +1,6 @@
 # backend/api/admin.py
 from django.contrib import admin
-from .models import College, Department, Course, Issue
+from .models import College, Department, Course, Issue, Notification
 
 @admin.register(College)
 class CollegeAdmin(admin.ModelAdmin):
@@ -104,3 +104,12 @@ class IssueAdmin(admin.ModelAdmin):
     list_filter = ('status', 'issue_type', 'course')
     search_fields = ('title', 'description', 'student__username', 'course__course_code')
     date_hierarchy = 'created_at'
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'notification_type', 'message', 'created_at', 'read')
+    list_filter = ('notification_type', 'read', 'created_at')
+    search_fields = ('message', 'user__email', 'user__first_name', 'user__last_name')
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at',)
+    list_per_page = 25

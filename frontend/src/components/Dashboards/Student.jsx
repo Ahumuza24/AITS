@@ -32,6 +32,7 @@ import { styled } from "@mui/material/styles";
 import { Modal, Button, Form } from "react-bootstrap";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
+import axios from "axios";
 
 const ReadNotification = styled(ListItemButton)({
   backgroundColor: "#f0f0f0", // Light gray background
@@ -45,12 +46,10 @@ const Student = ({ user }) => {
   const navigate = useNavigate();
   const [greeting, setGreeting] = useState("");
   const [anchorEl, setAnchorEl] = useState(null);
-  const [notifications, setNotifications] = useState([
-    { id: 1, message: "New course update available", read: false },
-    { id: 2, message: "Assignment deadline extended", read: false },
-  ]);
+  const [notifications, setNotifications] = useState([]);
   const [myIssues, setMyIssues] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [courses, setCourses] = useState([]);
 
   useEffect(() => {
     const getGreeting = () => {
@@ -91,8 +90,20 @@ const Student = ({ user }) => {
         // Get dashboard data
         const data = await getStudentDashboard();
         setDashboardData(data);
+        
+        // Fetch courses
+        const courseData = await getCourses();
+        setCourses(courseData);
+        
+        // Fetch notifications
+        fetchNotifications();
       } catch (error) {
         console.error("Error fetching student data:", error);
+        // Handle error - possibly redirect to login if unauthorized
+        if (error.response && error.response.status === 401) {
+          logout();
+          navigate("/login");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -101,7 +112,7 @@ const Student = ({ user }) => {
     if (user?.id) {
       fetchStudentData();
     }
-  }, [user]);
+  }, [user, navigate]);
 
   const handleLogout = () => {
     logout();
@@ -117,19 +128,30 @@ const Student = ({ user }) => {
   ];
 
   const handleClick = (event) => {
-    setAnchorEl(anchorEl ? null : event.currentTarget); // Toggle popper
+    setAnchorEl(anchorEl ? null : event.currentTarget);
   };
 
   const handleClose = () => {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = (id) => {
-    setNotifications((prevNotifications) =>
-      prevNotifications.map((notif) =>
-        notif.id === id ? { ...notif, read: true } : notif
-      )
-    );
+  const handleNotificationClick = async (id) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      await axios.post(`http://localhost:8000/api/notifications/${id}/mark_as_read/`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      setNotifications((prevNotifications) =>
+        prevNotifications.map((notif) =>
+          notif.id === id ? { ...notif, read: true } : notif
+        )
+      );
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
   };
 
   const unreadCount = notifications.filter((notif) => !notif.read).length;
@@ -140,7 +162,7 @@ const Student = ({ user }) => {
   const renderContent = () => {
     switch (activeMenu) {
       case "dashboard":
-        return <DashboardContent user={user} myIssues={myIssues} />;
+        return <DashboardContent user={user} myIssues={myIssues} courses={courses} />;
       case "updates":
         return <Updates />;
       case "issues":
@@ -148,7 +170,7 @@ const Student = ({ user }) => {
       case "settings":
         return <SettingsContent user={user} />;
       default:
-        return <DashboardContent user={user} myIssues={myIssues} />;
+        return <DashboardContent user={user} myIssues={myIssues} courses={courses} />;
     }
   };
 
@@ -159,6 +181,21 @@ const Student = ({ user }) => {
       return user.username.charAt(0).toUpperCase();
     } else {
       return "U";
+    }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get("http://localhost:8000/api/notifications/", {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setNotifications(response.data);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      setNotifications([]);
     }
   };
 
@@ -215,24 +252,30 @@ const Student = ({ user }) => {
               placement="bottom-end"
             >
               <ClickAwayListener onClickAway={handleClose}>
-                <Paper sx={{ p: 2, width: 250, boxShadow: 3 }}>
-                  <Typography variant="h6">Notifications</Typography>
+                <Paper sx={{ p: 2, width: 300, maxHeight: 400, overflow: 'auto', boxShadow: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>Notifications</Typography>
                   <List>
                     {notifications.length > 0 ? (
                       notifications.map((notif, index) => (
                         <React.Fragment key={notif.id}>
                           <ListItem disablePadding>
                             {notif.read ? (
-                              <ReadNotification>
-                                <ListItemText primary={notif.message} />
-                              </ReadNotification>
+                              <ListItemButton disabled sx={{ backgroundColor: '#f5f5f5' }}>
+                                <ListItemText 
+                                  primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
+                                  sx={{ color: 'text.secondary' }}
+                                />
+                              </ListItemButton>
                             ) : (
                               <ListItemButton
-                                onClick={() =>
-                                  handleNotificationClick(notif.id)
-                                }
+                                onClick={() => handleNotificationClick(notif.id)}
+                                sx={{ backgroundColor: '#e3f2fd' }}
                               >
-                                <ListItemText primary={notif.message} />
+                                <ListItemText 
+                                  primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
+                                />
                               </ListItemButton>
                             )}
                           </ListItem>
@@ -244,10 +287,32 @@ const Student = ({ user }) => {
                         variant="body2"
                         sx={{ textAlign: "center", mt: 2 }}
                       >
-                        ✅ No new notifications
+                        No notifications
                       </Typography>
                     )}
                   </List>
+                  {notifications.length > 0 && (
+                    <Button 
+                      variant="text" 
+                      size="small" 
+                      fullWidth 
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem('access_token');
+                          await axios.post(`http://localhost:8000/api/notifications/mark_all_as_read/`, {}, {
+                            headers: {
+                              'Authorization': `Bearer ${token}`
+                            }
+                          });
+                          setNotifications(notifications.map(n => ({...n, read: true})));
+                        } catch (error) {
+                          console.error("Error marking all notifications as read:", error);
+                        }
+                      }}
+                    >
+                      Mark all as read
+                    </Button>
+                  )}
                 </Paper>
               </ClickAwayListener>
             </Popper>
@@ -264,7 +329,7 @@ const Student = ({ user }) => {
 };
 
 // Improved DashboardContent component for students
-const DashboardContent = ({ user, myIssues }) => {
+const DashboardContent = ({ user, myIssues, courses }) => {
   const [showCreateIssueModal, setShowCreateIssueModal] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -274,7 +339,6 @@ const DashboardContent = ({ user, myIssues }) => {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [courses, setCourses] = useState([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
 
   const pendingIssues = myIssues.filter(issue => issue.status === 'Pending').length;
@@ -327,7 +391,7 @@ const DashboardContent = ({ user, myIssues }) => {
   // Fetch courses when the modal is opened
   useEffect(() => {
     const fetchCourses = async () => {
-      if (showCreateIssueModal) {
+      if (showCreateIssueModal && (!courses || courses.length === 0)) {
         setIsLoadingCourses(true);
         try {
           const coursesData = await getCourses();
@@ -349,7 +413,8 @@ const DashboardContent = ({ user, myIssues }) => {
           }
           */
           
-          setCourses(filteredCourses);
+          // Not needed anymore as we get courses from props
+          // setCourses(filteredCourses);
         } catch (error) {
           console.error('Error fetching courses:', error);
           setError('Unable to load courses. Please try again later.');
@@ -360,7 +425,7 @@ const DashboardContent = ({ user, myIssues }) => {
     };
     
     fetchCourses();
-  }, [showCreateIssueModal, user]);
+  }, [showCreateIssueModal, user, courses]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

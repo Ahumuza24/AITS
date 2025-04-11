@@ -172,3 +172,25 @@ class Issue(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+class Notification(models.Model):
+    NOTIFICATION_TYPES = [
+        ('ISSUE_CREATED', 'Issue Created'),
+        ('ISSUE_ASSIGNED', 'Issue Assigned'),
+        ('STATUS_CHANGED', 'Status Changed'),
+        ('NEW_ISSUE', 'New Issue'),
+        ('STATUS_UPDATE', 'Status Update'),
+    ]
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    issue = models.ForeignKey(Issue, on_delete=models.CASCADE, related_name='notifications', null=True, blank=True)
+    message = models.CharField(max_length=255)
+    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return f"{self.notification_type} - {self.user.email} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+    
+    class Meta:
+        ordering = ['-created_at']

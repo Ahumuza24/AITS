@@ -52,8 +52,13 @@ const Lecturer = ({ user }) => {
 
   const fetchNotifications = async () => {
     try {
-    const res = await axios.get("http://localhost:8000/api/notifications/");
-    setNotifications(res.data);
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get("http://localhost:8000/api/notifications/", {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setNotifications(response.data);
     } catch (error) {
       console.error("Error fetching notifications:", error);
       setNotifications([]);
@@ -78,7 +83,14 @@ const Lecturer = ({ user }) => {
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+    
+    // Poll for notifications every 30 seconds
+    const notificationInterval = setInterval(fetchNotifications, 30000);
+    
+    return () => {
+      clearInterval(notificationInterval);
+    };
+  }, [navigate]);
 
   const id = open ? "notification-popper" : undefined;
 
@@ -86,12 +98,23 @@ const Lecturer = ({ user }) => {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = (id) => {
-    setNotifications((prevNotifications) =>
-      prevNotifications.map((notif) =>
-        notif.id === id ? { ...notif, read: true } : notif
-      )
-    );
+  const handleNotificationClick = async (id) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      await axios.post(`http://localhost:8000/api/notifications/${id}/mark_as_read/`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      setNotifications((prevNotifications) =>
+        prevNotifications.map((notif) =>
+          notif.id === id ? { ...notif, read: true } : notif
+        )
+      );
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
   };
 
   useEffect(() => {
@@ -188,25 +211,30 @@ const Lecturer = ({ user }) => {
               placement="bottom-end"
             >
               <ClickAwayListener onClickAway={handleClose}>
-                <Paper sx={{ p: 2, width: 250, boxShadow: 3 }}>
-                  <Typography variant="h6">Notifications</Typography>
+                <Paper sx={{ p: 2, width: 300, maxHeight: 400, overflow: 'auto', boxShadow: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>Notifications</Typography>
                   <List>
                     {notifications.length > 0 ? (
                       notifications.map((notif, index) => (
                         <React.Fragment key={notif.id}>
                           <ListItem disablePadding>
                             {notif.read ? (
-                              <ListItemButton disabled>
+                              <ListItemButton disabled sx={{ backgroundColor: '#f5f5f5' }}>
                                 <ListItemText 
                                   primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
                                   sx={{ color: 'text.secondary' }}
                                 />
                               </ListItemButton>
                             ) : (
                               <ListItemButton
                                 onClick={() => handleNotificationClick(notif.id)}
+                                sx={{ backgroundColor: '#e3f2fd' }}
                               >
-                                <ListItemText primary={notif.message} />
+                                <ListItemText 
+                                  primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
+                                />
                               </ListItemButton>
                             )}
                           </ListItem>
@@ -218,10 +246,32 @@ const Lecturer = ({ user }) => {
                         variant="body2"
                         sx={{ textAlign: "center", mt: 2 }}
                       >
-                        ✅ No new notifications
+                        No notifications
                       </Typography>
                     )}
                   </List>
+                  {notifications.length > 0 && (
+                    <Button 
+                      variant="text" 
+                      size="small" 
+                      fullWidth 
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem('access_token');
+                          await axios.post(`http://localhost:8000/api/notifications/mark_all_as_read/`, {}, {
+                            headers: {
+                              'Authorization': `Bearer ${token}`
+                            }
+                          });
+                          setNotifications(notifications.map(n => ({...n, read: true})));
+                        } catch (error) {
+                          console.error("Error marking all notifications as read:", error);
+                        }
+                      }}
+                    >
+                      Mark all as read
+                    </Button>
+                  )}
                 </Paper>
               </ClickAwayListener>
             </Popper>

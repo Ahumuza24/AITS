@@ -8,6 +8,7 @@ import {
   logout,
   register,
   updateUser,
+  getAdminDashboard,
 } from "../../services/api";
 import { useNavigate } from "react-router-dom";
 import {
@@ -62,22 +63,25 @@ import Courses from "./Courses";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import "./admin.css"; // Import the CSS file
+import axios from "axios";
 
 // Register Chart.js components
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 const Admin = ({ user }) => {
-  const [activeMenu, setActiveMenu] = useState("dashboard");
-  const [dashboardData, setDashboardData] = useState([]);
-  const [dept, setDept] = useState([]);
-  const [users, setUsers] = useState([]);
   const navigate = useNavigate();
-  const [greeting, setGreeting] = useState("");
+  const [activeMenu, setActiveMenu] = useState("dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [dashboardData, setDashboardData] = useState(null);
   const [notifications, setNotifications] = useState([]);
-  const [courses, setCourses] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [recentIssues, setRecentIssues] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [dept, setDept] = useState([]);
+  const [statisticsData, setStatisticsData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [modalContent, setModalContent] = useState(null);
+  const [greeting, setGreeting] = useState("");
 
   // Get user initials for the avatar
   const getUserInitials = () => {
@@ -102,40 +106,52 @@ const Admin = ({ user }) => {
     setGreeting(getGreeting());
   }, []);
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
+  const fetchAdminDashboard = async () => {
+    try {
       setIsLoading(true);
-      try {
-        const [usersData, issuesData, coursesData, departmentsData] = await Promise.all([
-          getUsers(),
-          getIssues(),
-          getCourses(),
-          getDepartments()
-        ]);
-        
-        setUsers(usersData);
-        setIssues(issuesData);
-        setCourses(coursesData);
-        setDepartments(departmentsData);
-        
-        // Get 5 most recent issues
-        const sortedIssues = [...issuesData].sort((a, b) => 
-          new Date(b.created_at) - new Date(a.created_at)
-        );
-        setRecentIssues(sortedIssues.slice(0, 5));
-        
-        // Fetch notifications - in a real application, this would call an API endpoint
-        // For now, we'll just set empty notifications until the API is implemented
-        setNotifications([]);
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setIsLoading(false);
+      const data = await getAdminDashboard();
+      setDashboardData(data);
+      setUsers(data.users || []);
+      setDept(data.departments || []);
+      setStatisticsData(data.statistics || null);
+    } catch (error) {
+      console.error("Error fetching admin dashboard:", error);
+      // Handle unauthorized access
+      if (error.response && error.response.status === 401) {
+        logout();
+        navigate("/login");
       }
-    };
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    fetchDashboardData();
-  }, []);
+  const fetchNotifications = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await axios.get("http://localhost:8000/api/notifications/", {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      setNotifications(response.data);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      setNotifications([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchAdminDashboard();
+    fetchNotifications();
+    
+    // Poll for notifications every 30 seconds
+    const notificationInterval = setInterval(fetchNotifications, 30000);
+    
+    return () => {
+      clearInterval(notificationInterval);
+    };
+  }, [navigate]);
 
   useEffect(() => {
     const fetchDepartment = async () => {
@@ -171,12 +187,23 @@ const Admin = ({ user }) => {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = (id) => {
-    setNotifications((prevNotifications) =>
-      prevNotifications.map((notif) =>
-        notif.id === id ? { ...notif, read: true } : notif
-      )
-    );
+  const handleNotificationClick = async (id) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      await axios.post(`http://localhost:8000/api/notifications/${id}/mark_as_read/`, {}, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      setNotifications((prevNotifications) =>
+        prevNotifications.map((notif) =>
+          notif.id === id ? { ...notif, read: true } : notif
+        )
+      );
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
   };
 
   const unreadCount = notifications.filter((notif) => !notif.read).length;
@@ -268,25 +295,30 @@ const Admin = ({ user }) => {
               placement="bottom-end"
             >
               <ClickAwayListener onClickAway={handleClose}>
-                <Paper sx={{ p: 2, width: 250, boxShadow: 3 }}>
-                  <Typography variant="h6">Notifications</Typography>
+                <Paper sx={{ p: 2, width: 300, maxHeight: 400, overflow: 'auto', boxShadow: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>Notifications</Typography>
                   <List>
                     {notifications.length > 0 ? (
                       notifications.map((notif, index) => (
                         <React.Fragment key={notif.id}>
                           <ListItem disablePadding>
                             {notif.read ? (
-                              <ListItemButton disabled>
+                              <ListItemButton disabled sx={{ backgroundColor: '#f5f5f5' }}>
                                 <ListItemText 
                                   primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
                                   sx={{ color: 'text.secondary' }}
                                 />
                               </ListItemButton>
                             ) : (
                               <ListItemButton
                                 onClick={() => handleNotificationClick(notif.id)}
+                                sx={{ backgroundColor: '#e3f2fd' }}
                               >
-                                <ListItemText primary={notif.message} />
+                                <ListItemText 
+                                  primary={notif.message} 
+                                  secondary={new Date(notif.created_at).toLocaleString()}
+                                />
                               </ListItemButton>
                             )}
                           </ListItem>
@@ -298,10 +330,32 @@ const Admin = ({ user }) => {
                         variant="body2"
                         sx={{ textAlign: "center", mt: 2 }}
                       >
-                        ✅ No new notifications
+                        No notifications
                       </Typography>
                     )}
                   </List>
+                  {notifications.length > 0 && (
+                    <Button 
+                      variant="text" 
+                      size="small" 
+                      fullWidth 
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem('access_token');
+                          await axios.post(`http://localhost:8000/api/notifications/mark_all_as_read/`, {}, {
+                            headers: {
+                              'Authorization': `Bearer ${token}`
+                            }
+                          });
+                          setNotifications(notifications.map(n => ({...n, read: true})));
+                        } catch (error) {
+                          console.error("Error marking all notifications as read:", error);
+                        }
+                      }}
+                    >
+                      Mark all as read
+                    </Button>
+                  )}
                 </Paper>
               </ClickAwayListener>
             </Popper>

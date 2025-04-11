@@ -2,9 +2,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    # StudentDashboardView, 
-    # LecturerDashboardView, 
-    # AdminDashboardView,
+    StudentDashboardView, 
+    LecturerDashboardView, 
+    AdminDashboardView,
     CollegeListView,
     CollegeDetailView,
     CollegeCreateView,
@@ -24,16 +24,18 @@ from .views import (
     get_user_department,
     get_staff_issues,
     hod_assign_issue,
+    NotificationViewSet,
 )
 
 # Create a router and register our viewsets with it.
 router = DefaultRouter()
 router.register(r'issues', IssueViewSet, basename='issue')
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
-    # path('dashboard/student/', StudentDashboardView.as_view(), name='student_dashboard'),
-    # path('dashboard/lecturer/', LecturerDashboardView.as_view(), name='lecturer_dashboard'),
-    # path('dashboard/admin/', AdminDashboardView.as_view(), name='admin_dashboard'),
+    path('dashboard/student/', StudentDashboardView.as_view(), name='student_dashboard'),
+    path('dashboard/lecturer/', LecturerDashboardView.as_view(), name='lecturer_dashboard'),
+    path('dashboard/admin/', AdminDashboardView.as_view(), name='admin_dashboard'),
     path('college/', CollegeListView.as_view(), name='college_list'),  
     path('college/<int:pk>/', CollegeDetailView.as_view(), name='college-detail'),
     path('admin/api/college/add/', CollegeCreateView.as_view(), name='college-add'),
