@@ -13,6 +13,12 @@ from .views import (
     CourseCreateView,
     IssueViewSet,
     IssueCreateView,
+    # New HOD-specific views
+    DepartmentDetailView,
+    DepartmentIssuesView,
+    DepartmentStaffView,
+    DepartmentCoursesView,
+    get_user_department,
 )
 
 # Create a router and register our viewsets with it.
@@ -30,6 +36,13 @@ urlpatterns = [
     path('course/', CourseListView.as_view(), name='course-list'),
     path('admin/api/course/add/', CourseCreateView.as_view(), name='course-add'),
     path('admin/api/issue/add/', IssueCreateView.as_view(), name='issue-add'),
+    
+    # New HOD-specific URL patterns
+    path('department/<int:pk>/', DepartmentDetailView.as_view(), name='department-detail'),
+    path('department/<int:pk>/issues/', DepartmentIssuesView.as_view(), name='department-issues'),
+    path('department/<int:pk>/staff/', DepartmentStaffView.as_view(), name='department-staff'),
+    path('department/<int:pk>/courses/', DepartmentCoursesView.as_view(), name='department-courses'),
+    path('users/<int:user_id>/department/', get_user_department, name='user-department'),
     
     # Include the router URLs
     path('', include(router.urls)),

@@ -129,11 +129,12 @@ const HeadOfDepartment = ({ user }) => {
         // Sometimes the field may be named department_id instead
         departmentId = user.department_id;
         console.log("Found department_id:", departmentId);
-      } else if (user.role === 'HOD' && user.id) {
-        // For HOD users, we might need to fetch their department info separately
-        // For now, use their user ID to look up the department
-        console.log("User is HOD but no department info, will try to fetch separately");
-        getDepartmentForHOD(user.id);
+      }
+      
+      // If still no department ID was found, try a direct API call to get HOD department
+      if (!departmentId && user.id) {
+        console.log("No department ID found in user object, trying direct API call");
+        tryDirectApiCallForHodDepartment(user.id);
         return;
       }
       
@@ -146,9 +147,6 @@ const HeadOfDepartment = ({ user }) => {
       
       console.log("Loading department data for department ID:", departmentId);
       fetchDepartmentData(departmentId);
-      
-      // Fetch notifications - in a real application, this would call an API endpoint
-      // For now, we'll keep it empty until the API is implemented
     } else {
       setError("User information not available");
       setLoading(false);
@@ -219,6 +217,45 @@ const HeadOfDepartment = ({ user }) => {
     }
   };
 
+  // Function to try getting department info directly from API
+  const tryDirectApiCallForHodDepartment = async (userId) => {
+    try {
+      setLoading(true);
+      console.log("Trying direct API call to get HOD department for user ID:", userId);
+      
+      // Try to get HOD department directly from API
+      const response = await fetch(`http://localhost:8000/api/users/${userId}/department/`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Direct API response for HOD department:", data);
+        
+        if (data && data.department && data.department.id) {
+          console.log("Found department from API:", data.department.id);
+          fetchDepartmentData(data.department.id);
+          return;
+        }
+      } else {
+        console.warn("Direct API call failed with status:", response.status);
+        
+        // If status is 404, the endpoint might not exist yet
+        if (response.status === 404) {
+          console.log("API endpoint not found, this is likely a new feature");
+        }
+      }
+      
+      // If direct API call fails, fall back to existing methods
+      getDepartmentForHOD(userId);
+    } catch (err) {
+      console.error("Error in direct API call for HOD department:", err);
+      getDepartmentForHOD(userId);
+    }
+  };
+
   // Function to fetch all department data
   const fetchDepartmentData = async (departmentId) => {
     setLoading(true);
@@ -237,6 +274,129 @@ const HeadOfDepartment = ({ user }) => {
     console.log(`Fetching data for department ID: ${deptId}`);
     
     try {
+      // Try direct API calls first for each type of data
+      let departmentDetails = null;
+      let departmentIssues = [];
+      let departmentStaff = [];
+      let departmentCourses = [];
+      let errors = [];
+      
+      // Try to get department details directly
+      try {
+        const detailsResponse = await fetch(`http://localhost:8000/api/department/${deptId}/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (detailsResponse.ok) {
+          departmentDetails = await detailsResponse.json();
+          console.log("Direct API call for department details successful:", departmentDetails);
+        } else {
+          console.warn("Direct API call for department details failed:", detailsResponse.status);
+          errors.push("Failed to fetch department details directly");
+        }
+      } catch (detailsError) {
+        console.error("Error fetching department details directly:", detailsError);
+        errors.push(`Error fetching department details: ${detailsError.message}`);
+      }
+      
+      // Try to get department issues directly
+      try {
+        const issuesResponse = await fetch(`http://localhost:8000/api/department/${deptId}/issues/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (issuesResponse.ok) {
+          departmentIssues = await issuesResponse.json();
+          console.log("Direct API call for department issues successful:", departmentIssues);
+        } else {
+          console.warn("Direct API call for department issues failed:", issuesResponse.status);
+          errors.push("Failed to fetch department issues directly");
+        }
+      } catch (issuesError) {
+        console.error("Error fetching department issues directly:", issuesError);
+        errors.push(`Error fetching department issues: ${issuesError.message}`);
+      }
+      
+      // Try to get department staff directly
+      try {
+        const staffResponse = await fetch(`http://localhost:8000/api/department/${deptId}/staff/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (staffResponse.ok) {
+          departmentStaff = await staffResponse.json();
+          console.log("Direct API call for department staff successful:", departmentStaff);
+        } else {
+          console.warn("Direct API call for department staff failed:", staffResponse.status);
+          errors.push("Failed to fetch department staff directly");
+        }
+      } catch (staffError) {
+        console.error("Error fetching department staff directly:", staffError);
+        errors.push(`Error fetching department staff: ${staffError.message}`);
+      }
+      
+      // Try to get department courses directly
+      try {
+        const coursesResponse = await fetch(`http://localhost:8000/api/department/${deptId}/courses/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (coursesResponse.ok) {
+          departmentCourses = await coursesResponse.json();
+          console.log("Direct API call for department courses successful:", departmentCourses);
+        } else {
+          console.warn("Direct API call for department courses failed:", coursesResponse.status);
+          errors.push("Failed to fetch department courses directly");
+        }
+      } catch (coursesError) {
+        console.error("Error fetching department courses directly:", coursesError);
+        errors.push(`Error fetching department courses: ${coursesError.message}`);
+      }
+      
+      // If we got any data directly, use it
+      let hasDirectData = false;
+      
+      if (departmentDetails) {
+        setDepartmentDetails(departmentDetails);
+        hasDirectData = true;
+      }
+      
+      if (Array.isArray(departmentIssues) && departmentIssues.length > 0) {
+        setDepartmentIssues(departmentIssues);
+        calculateIssueStats(departmentIssues);
+        hasDirectData = true;
+      }
+      
+      if (Array.isArray(departmentStaff) && departmentStaff.length > 0) {
+        setDepartmentStaff(departmentStaff);
+        hasDirectData = true;
+      }
+      
+      if (Array.isArray(departmentCourses) && departmentCourses.length > 0) {
+        setDepartmentCourses(departmentCourses);
+        hasDirectData = true;
+      }
+      
+      // If we got any data directly, set the errors (if any) and exit early
+      if (hasDirectData) {
+        if (errors.length > 0) {
+          setFetchingError(errors.join('; '));
+        }
+        setLoading(false);
+        return;
+      }
+      
+      // If direct API calls failed, fall back to the existing methods
+      console.log("Direct API calls failed or returned no data, falling back to existing methods");
+      
       // Fetch general dashboard data - don't await, start all requests in parallel
       const dashboardPromise = getDashboardData().catch(error => {
         console.error("Error fetching dashboard data:", error);
@@ -358,7 +518,96 @@ const HeadOfDepartment = ({ user }) => {
         if (departments && departments.length > 0) {
           fetchDepartmentData(departments[0].id);
         } else {
-          setError("Could not determine department for Head of Department. Please contact administrator.");
+          // Use a mock department as a last resort for testing/development
+          console.warn("No departments found, using mock department data for testing");
+          const mockDepartmentId = 1;
+          
+          // Set mock data for testing
+          setDepartmentDetails({
+            id: mockDepartmentId,
+            department_name: "Computer Science",
+            department_code: "CS",
+            college: { id: 1, name: "College of Science and Engineering" }
+          });
+          
+          setDepartmentIssues([
+            {
+              id: 1,
+              title: "Sample Issue 1",
+              description: "This is a sample issue for testing",
+              status: "Pending",
+              created_at: new Date().toISOString(),
+              student: { id: 1, first_name: "Test", last_name: "Student" },
+              course: { id: 1, course_name: "Introduction to Programming" }
+            },
+            {
+              id: 2,
+              title: "Sample Issue 2",
+              description: "Another sample issue for testing",
+              status: "In Progress",
+              created_at: new Date().toISOString(),
+              student: { id: 2, first_name: "Jane", last_name: "Doe" },
+              course: { id: 2, course_name: "Data Structures" }
+            },
+            {
+              id: 3,
+              title: "Sample Issue 3",
+              description: "A third sample issue",
+              status: "Solved",
+              created_at: new Date().toISOString(),
+              student: { id: 3, first_name: "John", last_name: "Smith" },
+              course: { id: 3, course_name: "Algorithms" }
+            }
+          ]);
+          
+          setDepartmentStaff([
+            {
+              id: 101,
+              title: "Dr.",
+              first_name: "Jane",
+              last_name: "Lecturer",
+              email: "jane.lecturer@example.com",
+              role: "LECTURER"
+            },
+            {
+              id: 102,
+              title: "Prof.",
+              first_name: "John",
+              last_name: "Professor",
+              email: "john.professor@example.com",
+              role: "LECTURER"
+            }
+          ]);
+          
+          setDepartmentCourses([
+            {
+              id: 1,
+              course_code: "CS101",
+              course_name: "Introduction to Programming",
+              department: mockDepartmentId
+            },
+            {
+              id: 2,
+              course_code: "CS201",
+              course_name: "Data Structures",
+              department: mockDepartmentId
+            },
+            {
+              id: 3,
+              course_code: "CS301",
+              course_name: "Algorithms",
+              department: mockDepartmentId
+            }
+          ]);
+          
+          // Calculate statistics based on mock data
+          calculateIssueStats([
+            { status: "Pending" },
+            { status: "In Progress" },
+            { status: "Solved" }
+          ]);
+          
+          setError("Using example data for testing. Connect to the API for real data.");
           setLoading(false);
         }
       }

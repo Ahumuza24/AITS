@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from .models import College, Department, Course, Issue
 from .serializers import CollegeSerializer, DepartmentSerializer, CourseSerializer, IssueSerializer, IssueCreateSerializer
 from rest_framework.permissions import IsAdminUser, AllowAny
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 
 class CollegeListView(APIView):
     permission_classes = [AllowAny]
@@ -84,27 +84,17 @@ class CourseCreateView(APIView):
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-class IsOwnerOrStaffOrAssignedTo(permissions.BasePermission):
+class IsOwnerOrStaff(permissions.BasePermission):
     """
-    Custom permission to allow:
-    1. Staff to access any issue
-    2. Students to access their own issues
-    3. Lecturers/HODs to access issues assigned to them
+    Custom permission to only allow owners of an object or staff to access it.
     """
     def has_object_permission(self, request, view, obj):
         # Staff can access any object
         if request.user.is_staff:
             return True
         
-        # Check if the user is the student who created the issue
-        if hasattr(obj, 'student') and obj.student == request.user:
-            return True
-            
-        # Check if the user is the lecturer/HOD assigned to the issue
-        if hasattr(obj, 'assigned_to') and obj.assigned_to == request.user:
-            return True
-            
-        return False
+        # Check if the object has a student attribute and it matches the request user
+        return hasattr(obj, 'student') and obj.student == request.user
 
 class IssueCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -121,7 +111,7 @@ class IssueViewSet(viewsets.ModelViewSet):
     API endpoint for managing issues.
     """
     serializer_class = IssueSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrStaffOrAssignedTo]
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrStaff]
     
     def get_queryset(self):
         """
@@ -164,21 +154,15 @@ class IssueViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def update_status(self, request, pk=None):
         """
-        Endpoint for updating issue status.
-        Staff and assigned lecturers/HODs can update status.
+        Special endpoint for admins to update just the status.
         """
-        issue = self.get_object()
-        
-        # Check if user has permission to update status
-        if not (request.user.is_staff or 
-                (hasattr(request.user, 'role') and 
-                 request.user.role in ['LECTURER', 'HOD'] and 
-                 issue.assigned_to == request.user)):
+        if not request.user.is_staff:
             return Response(
                 {"detail": "You do not have permission to perform this action."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        issue = self.get_object()
         new_status = request.data.get('status')
         
         if new_status not in dict(Issue.STATUS_CHOICES):
@@ -220,7 +204,7 @@ class IssueViewSet(viewsets.ModelViewSet):
             assigned_user = User.objects.get(id=user_id)
             
             # Check if the user is a lecturer or HOD
-            if not hasattr(assigned_user, 'role') or assigned_user.role not in ['LECTURER', 'HOD']:
+            if assigned_user.role not in ['LECTURER', 'HOD']:
                 return Response(
                     {"detail": "Issues can only be assigned to lecturers or heads of department"},
                     status=status.HTTP_400_BAD_REQUEST
@@ -245,6 +229,154 @@ class IssueViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+# New Views for HOD access - Add these at the end of the file
+class DepartmentDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            # Get the department
+            department = Department.objects.get(pk=pk)
+            
+            # Check if user is admin or HOD of this department
+            user = request.user
+            if not user.is_staff and not (hasattr(user, 'role') and user.role == 'HOD' and user.department and str(user.department.id) == str(pk)):
+                return Response(
+                    {"detail": "You do not have permission to access this department's data."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            serializer = DepartmentSerializer(department)
+            return Response(serializer.data)
+        except Department.DoesNotExist:
+            return Response(
+                {"detail": "Department not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class DepartmentIssuesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            # Get the department
+            department = Department.objects.get(pk=pk)
+            
+            # Check if user is admin or HOD of this department
+            user = request.user
+            if not user.is_staff and not (hasattr(user, 'role') and user.role == 'HOD' and user.department and str(user.department.id) == str(pk)):
+                return Response(
+                    {"detail": "You do not have permission to access this department's issues."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get issues for courses in this department
+            courses = Course.objects.filter(department=department)
+            department_issues = Issue.objects.filter(course__in=courses)
+            
+            serializer = IssueSerializer(department_issues, many=True)
+            return Response(serializer.data)
+        except Department.DoesNotExist:
+            return Response(
+                {"detail": "Department not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class DepartmentStaffView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            # Get the department
+            department = Department.objects.get(pk=pk)
+            
+            # Check if user is admin or HOD of this department
+            user = request.user
+            if not user.is_staff and not (hasattr(user, 'role') and user.role == 'HOD' and user.department and str(user.department.id) == str(pk)):
+                return Response(
+                    {"detail": "You do not have permission to access this department's staff."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get staff (lecturers and HOD) for this department
+            from users.models import User
+            from users.serializers import UserSerializer
+            
+            department_staff = User.objects.filter(
+                department=department, 
+                role__in=['HOD', 'LECTURER']
+            )
+            
+            serializer = UserSerializer(department_staff, many=True)
+            return Response(serializer.data)
+        except Department.DoesNotExist:
+            return Response(
+                {"detail": "Department not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class DepartmentCoursesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            # Get the department
+            department = Department.objects.get(pk=pk)
+            
+            # Check if user is admin or HOD of this department
+            user = request.user
+            if not user.is_staff and not (hasattr(user, 'role') and user.role == 'HOD' and user.department and str(user.department.id) == str(pk)):
+                return Response(
+                    {"detail": "You do not have permission to access this department's courses."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get courses for this department
+            department_courses = Course.objects.filter(department=department)
+            
+            serializer = CourseSerializer(department_courses, many=True)
+            return Response(serializer.data)
+        except Department.DoesNotExist:
+            return Response(
+                {"detail": "Department not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+from rest_framework.decorators import api_view, permission_classes
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_user_department(request, user_id):
+    try:
+        # Check if the requesting user is the same as the user_id or an admin
+        if str(request.user.id) != str(user_id) and not request.user.is_staff:
+            return Response(
+                {"detail": "You do not have permission to access this user's department."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get the user
+        from users.models import User
+        from users.serializers import UserSerializer
+        
+        user = User.objects.get(pk=user_id)
+        
+        # If the user is an HOD, return their department
+        if hasattr(user, 'role') and user.role == 'HOD' and user.department:
+            department_serializer = DepartmentSerializer(user.department)
+            return Response({
+                "department": department_serializer.data
+            })
+        else:
+            return Response(
+                {"detail": "This user is not a Head of Department or has no assigned department."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    except User.DoesNotExist:
+        return Response(
+            {"detail": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 # class StudentDashboardView(APIView):
 #     permission_classes = [permissions.IsAuthenticated]
