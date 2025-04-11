@@ -957,20 +957,20 @@ const Issues = ({ user }) => {
   });
   
   return (
-    <div>
-      <div className="dashboard-grid">
+  <div>
+    <div className="dashboard-grid">
         <div className="card dashboard-card">
           <div className="card-body">
             <div className="d-flex align-items-center">
               <div className="icon-box bg-primary">
                 <FaClipboardList />
-              </div>
+      </div>
               <div className="ms-3">
                 <h6 className="card-subtitle text-muted">Total Assigned</h6>
                 <h4 className="card-title mb-0">{assignedIssues.length}</h4>
-              </div>
-            </div>
-          </div>
+      </div>
+      </div>
+    </div>
         </div>
         
         <div className="card dashboard-card">
@@ -1284,8 +1284,8 @@ const Issues = ({ user }) => {
           )}
         </Modal.Body>
       </Modal>
-    </div>
-  );
+  </div>
+);
 };
 
 const SettingsContent = ({ user }) => (

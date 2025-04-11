@@ -1,0 +1,131 @@
+/* StudentIssues.css */
+.issue-table thead th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+}
+
+.issue-row:hover {
+  cursor: pointer;
+  background-color: #f1f5f9 !important;
+}
+
+.badge {
+  font-weight: 500;
+  padding: 0.4rem 0.6rem;
+}
+
+.filters-row {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+}
+
+.custom-modal {
+  padding: 20px;
+}
+
+.form-label {
+  font-weight: 500;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.7rem;
+  border-radius: 50rem;
+}
+
+.status-pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-progress {
+  background-color: #cfe2ff;
+  color: #084298;
+}
+
+.status-solved {
+  background-color: #d1e7dd;
+  color: #0f5132;
+}
+
+.icon-box {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: white;
+}
+
+.icon-box.bg-primary {
+  background-color: #0d6efd;
+}
+
+.icon-box.bg-warning {
+  background-color: #ffc107;
+}
+
+.icon-box.bg-success {
+  background-color: #198754;
+}
+
+.add-issue-btn {
+  background-color: #0d6efd;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+
+/* Details modal styling */
+.details-header {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section-title {
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 10px;
+  color: #495057;
+  text-transform: uppercase;
+}
+
+.detail-card {
+  border: 1px solid #eee;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.detail-card-header {
+  background-color: #f8f9fa;
+  padding: 10px 15px;
+  border-bottom: 1px solid #eee;
+}
+
+.detail-card-body {
+  padding: 15px;
+}
+
+.detail-row {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.detail-label {
+  font-weight: 500;
+  width: 40%;
+  color: #6c757d;
+}
+
+.detail-value {
+  width: 60%;
+} 
