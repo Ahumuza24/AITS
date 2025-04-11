@@ -116,12 +116,22 @@ class IssueViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        This view should return a list of all issues for the currently authenticated user,
-        or all issues for staff users.
+        This view should return:
+        - All issues for admin users
+        - Own issues for students 
+        - Assigned issues for lecturers and HODs
         """
         user = self.request.user
-        if user.is_staff:
+        
+        # Admin can see all issues
+        if user.is_staff or user.role == 'ADMIN':
             return Issue.objects.all()
+        
+        # Lecturers and HODs can see issues assigned to them
+        if user.role in ['LECTURER', 'HOD']:
+            return Issue.objects.filter(assigned_to=user)
+        
+        # Students can see only their own issues
         return Issue.objects.filter(student=user)
     
     def get_serializer_class(self):
@@ -145,16 +155,26 @@ class IssueViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def update_status(self, request, pk=None):
         """
-        Special endpoint for admins to update just the status.
+        Endpoint to update just the status of an issue.
+        - Admins can update any issue
+        - Staff users can update any issue
+        - Lecturers and HODs can update issues assigned to them
         """
-        if not request.user.is_staff:
-            return Response(
-                {"detail": "You do not have permission to perform this action."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
         issue = self.get_object()
         new_status = request.data.get('status')
+        
+        # Check permissions - allow lecturers/HODs to update status of issues assigned to them
+        user = request.user
+        if not (user.is_staff or user.role == 'ADMIN'):
+            # For non-admin users, verify they're assigned to this issue
+            if user.role in ['LECTURER', 'HOD'] and issue.assigned_to and issue.assigned_to.id == user.id:
+                # Assigned lecturer/HOD can update
+                pass
+            else:
+                return Response(
+                    {"detail": "You do not have permission to perform this action."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         if new_status not in dict(Issue.STATUS_CHOICES):
             return Response(

@@ -311,71 +311,30 @@ const DashboardContent = ({ user }) => {
     const fetchAssignedIssues = async () => {
       setIsLoading(true);
       try {
-        const allIssues = await getIssues();
-        console.log("All issues:", allIssues);
-        console.log("Current user:", user);
-        
-        // Try a direct API call to get lecturer-specific issues
-        try {
-          // This could be implemented on the backend for better performance
-          const lecturerIssuesResponse = await fetch(`http://localhost:8000/api/issues/?assigned_to=${user.id}`, {
-            headers: {
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-          });
-          
-          if (lecturerIssuesResponse.ok) {
-            const lecturerIssuesData = await lecturerIssuesResponse.json();
-            console.log("Direct API call for lecturer issues:", lecturerIssuesData);
-            if (Array.isArray(lecturerIssuesData) && lecturerIssuesData.length > 0) {
-              setAssignedIssues(lecturerIssuesData);
-              
-              // Calculate statistics
-              setStats({
-                totalAssigned: lecturerIssuesData.length,
-                pendingIssues: lecturerIssuesData.filter(issue => issue.status === 'Pending').length,
-                inProgressIssues: lecturerIssuesData.filter(issue => issue.status === 'InProgress').length,
-                resolvedIssues: lecturerIssuesData.filter(issue => issue.status === 'Solved').length
-              });
-              
-              setIsLoading(false);
-              return; // Skip the filtering below if we got data from the API
-            }
+        // Direct API call to get issues endpoint
+        // The backend will filter based on the current user being a lecturer
+        const response = await fetch('http://localhost:8000/api/issues/', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json'
           }
-        } catch (directApiError) {
-          console.log("Direct API call failed, falling back to client-side filtering:", directApiError);
-        }
-        
-        // Filter issues assigned to this lecturer - handle different possible response formats
-        const lecturerIssues = allIssues.filter(issue => {
-          // Check the assigned_to field structure and handle different formats
-          if (!issue.assigned_to) return false;
-          
-          // For debugging - log the structure of assigned_to
-          console.log("Issue ID:", issue.id, "assigned_to:", JSON.stringify(issue.assigned_to));
-          
-          // If assigned_to is an object with id
-          if (typeof issue.assigned_to === 'object' && issue.assigned_to.id) {
-            return issue.assigned_to.id.toString() === user.id.toString();
-          }
-          
-          // If assigned_to is just the ID itself
-          if (typeof issue.assigned_to === 'number' || typeof issue.assigned_to === 'string') {
-            return issue.assigned_to.toString() === user.id.toString();
-          }
-          
-          return false;
         });
         
-        console.log("Filtered lecturer issues:", lecturerIssues);
-        setAssignedIssues(lecturerIssues);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Fetched assigned issues:", data);
+        
+        setAssignedIssues(data);
         
         // Calculate statistics
         setStats({
-          totalAssigned: lecturerIssues.length,
-          pendingIssues: lecturerIssues.filter(issue => issue.status === 'Pending').length,
-          inProgressIssues: lecturerIssues.filter(issue => issue.status === 'InProgress').length,
-          resolvedIssues: lecturerIssues.filter(issue => issue.status === 'Solved').length
+          totalAssigned: data.length,
+          pendingIssues: data.filter(issue => issue.status === 'Pending').length,
+          inProgressIssues: data.filter(issue => issue.status === 'InProgress').length,
+          resolvedIssues: data.filter(issue => issue.status === 'Solved').length
         });
       } catch (error) {
         console.error("Error fetching assigned issues:", error);
@@ -384,8 +343,10 @@ const DashboardContent = ({ user }) => {
       }
     };
     
-    fetchAssignedIssues();
-  }, [user.id]);
+    if (user?.id) {
+      fetchAssignedIssues();
+    }
+  }, [user?.id]);
 
   const updateIssueStatus = async (issueId, newStatus) => {
     try {
@@ -872,7 +833,7 @@ const Issues = ({ user }) => {
         }
         
         const data = await response.json();
-        console.log("Fetched issues:", data);
+        console.log("Fetched issues for Issues component:", data);
         
         // Ensure we have an array of issues
         if (Array.isArray(data)) {
