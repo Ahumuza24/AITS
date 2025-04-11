@@ -297,6 +297,26 @@ export const createCollege = async (collegeData) => {
   }
 };
 
+export const updateCollege = async (collegeId, collegeData) => {
+  try {
+    const response = await api.put(`/college/${collegeId}/`, collegeData);
+    return response.data;
+  } catch (error) {
+    console.error("Error updating college:", error);
+    throw error;
+  }
+};
+
+export const deleteCollege = async (collegeId) => {
+  try {
+    const response = await api.delete(`/college/${collegeId}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting college:", error);
+    throw error;
+  }
+};
+
 export const getColleges = async () => {
   const token = localStorage.getItem("access_token");
 
@@ -333,6 +353,26 @@ export const createDepartment = async (departmentData) => {
       "Error creating department:",
       error.response?.data || error.message
     );
+    throw error;
+  }
+};
+
+export const updateDepartment = async (departmentId, departmentData) => {
+  try {
+    const response = await api.put(`/department/${departmentId}/`, departmentData);
+    return response.data;
+  } catch (error) {
+    console.error("Error updating department:", error);
+    throw error;
+  }
+};
+
+export const deleteDepartment = async (departmentId) => {
+  try {
+    const response = await api.delete(`/department/${departmentId}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting department:", error);
     throw error;
   }
 };
@@ -380,6 +420,26 @@ export const createCourse = async (courseData) => {
       "Error creating course:",
       error.response?.data || error.message
     );
+    throw error;
+  }
+};
+
+export const updateCourse = async (courseId, courseData) => {
+  try {
+    const response = await api.put(`/course/${courseId}/`, courseData);
+    return response.data;
+  } catch (error) {
+    console.error("Error updating course:", error);
+    throw error;
+  }
+};
+
+export const deleteCourse = async (courseId) => {
+  try {
+    const response = await api.delete(`/course/${courseId}/`);
+    return response.data;
+  } catch (error) {
+    console.error("Error deleting course:", error);
     throw error;
   }
 };
@@ -776,7 +836,30 @@ export const getDepartmentDetails = async (departmentId) => {
   try {
     console.log(`Fetching details for department ${deptId}`);
     
-    // Get all departments
+    // First try the direct department endpoint
+    try {
+      const response = await api.get(`/department/${deptId}/`);
+      if (response.data) {
+        console.log(`Successfully got department details from direct endpoint:`, response.data);
+        return { department: response.data, error: null };
+      }
+    } catch (directError) {
+      console.log(`Couldn't fetch from direct endpoint, trying HOD endpoint next:`, directError.message);
+      
+      // If the direct endpoint fails, try the HOD specific endpoint
+      try {
+        const hodResponse = await api.get(`/hod/department/${deptId}/`);
+        if (hodResponse.data) {
+          console.log(`Successfully got department details from HOD endpoint:`, hodResponse.data);
+          return { department: hodResponse.data, error: null };
+        }
+      } catch (hodError) {
+        console.log(`HOD endpoint also failed:`, hodError.message);
+        // Continue to the fallback approach if both direct and HOD specific endpoints fail
+      }
+    }
+    
+    // Fallback: Get all departments and find the specific one
     const response = await api.get('/department/');
     
     if (!response.data) {

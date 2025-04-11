@@ -24,6 +24,62 @@ class CollegeListView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    def put(self, request):
+        # Extra check - only admins can modify colleges
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can modify colleges."}, 
+                            status=status.HTTP_403_FORBIDDEN)
+            
+        college = get_object_or_404(College, pk=request.data.get('id'))
+        serializer = CollegeSerializer(college, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request):
+        # Extra check - only admins can delete colleges
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can delete colleges."}, 
+                           status=status.HTTP_403_FORBIDDEN)
+            
+        college = get_object_or_404(College, pk=request.data.get('id'))
+        college.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+class CollegeDetailView(APIView):
+    permission_classes = [IsAdminUser]
+    
+    def get_object(self, pk):
+        try:
+            return College.objects.get(pk=pk)
+        except College.DoesNotExist:
+            return None
+    
+    def get(self, request, pk):
+        college = self.get_object(pk)
+        if not college:
+            return Response({"detail": "College not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CollegeSerializer(college)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request, pk):
+        college = self.get_object(pk)
+        if not college:
+            return Response({"detail": "College not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CollegeSerializer(college, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk):
+        college = self.get_object(pk)
+        if not college:
+            return Response({"detail": "College not found"}, status=status.HTTP_404_NOT_FOUND)
+        college.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 class CollegeCreateView(APIView):
     # authentication_classes = [JWTAuthentication]  # If using JWT
     permission_classes = [IsAdminUser]  # Requires admin user
@@ -50,6 +106,67 @@ class DepartmentListView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class IsAdminOrHOD(permissions.BasePermission):
+    """
+    Custom permission to allow department access to admins and HODs.
+    """
+    def has_permission(self, request, view):
+        # Staff can access anything
+        if request.user.is_staff or request.user.role == 'ADMIN':
+            return True
+        
+        # HODs can access their own department
+        if request.user.role == 'HOD' and hasattr(request.user, 'department'):
+            # For detail views, we need to check the pk against the user's department
+            if 'pk' in view.kwargs:
+                return str(request.user.department.id) == str(view.kwargs['pk'])
+            return True
+        
+        return False
+
+class DepartmentDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrHOD]
+    
+    def get_object(self, pk):
+        try:
+            return Department.objects.get(pk=pk)
+        except Department.DoesNotExist:
+            return None
+    
+    def get(self, request, pk):
+        department = self.get_object(pk)
+        if not department:
+            return Response({"detail": "Department not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DepartmentSerializer(department)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request, pk):
+        # Extra check - only admins can edit
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can modify departments."}, 
+                            status=status.HTTP_403_FORBIDDEN)
+            
+        department = self.get_object(pk)
+        if not department:
+            return Response({"detail": "Department not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DepartmentSerializer(department, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk):
+        # Extra check - only admins can delete
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can delete departments."}, 
+                           status=status.HTTP_403_FORBIDDEN)
+            
+        department = self.get_object(pk)
+        if not department:
+            return Response({"detail": "Department not found"}, status=status.HTTP_404_NOT_FOUND)
+        department.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 class DepartmentCreateView(APIView):
     permission_classes = [IsAdminUser]  # Requires admin user
     
@@ -74,6 +191,94 @@ class CourseListView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request):
+        # Extra check - only admins can modify courses
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can modify courses."}, 
+                            status=status.HTTP_403_FORBIDDEN)
+            
+        course = get_object_or_404(Course, pk=request.data.get('id'))
+        serializer = CourseSerializer(course, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request):
+        # Extra check - only admins can delete courses
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can delete courses."}, 
+                           status=status.HTTP_403_FORBIDDEN)
+            
+        course = get_object_or_404(Course, pk=request.data.get('id'))
+        course.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+class IsAdminOrHODForCourse(permissions.BasePermission):
+    """
+    Custom permission to allow course access to admins and HODs.
+    """
+    def has_permission(self, request, view):
+        # Staff can access anything
+        if request.user.is_staff or request.user.role == 'ADMIN':
+            return True
+        
+        # HODs can access courses in their department
+        if request.user.role == 'HOD' and hasattr(request.user, 'department') and request.user.department:
+            # For detail views, we need to check the course's department against the user's department
+            if 'pk' in view.kwargs:
+                try:
+                    course = Course.objects.get(pk=view.kwargs['pk'])
+                    return str(request.user.department.id) == str(course.department.id)
+                except Course.DoesNotExist:
+                    return False
+            return True
+        
+        return False
+
+class CourseDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrHODForCourse]
+    
+    def get_object(self, pk):
+        try:
+            return Course.objects.get(pk=pk)
+        except Course.DoesNotExist:
+            return None
+    
+    def get(self, request, pk):
+        course = self.get_object(pk)
+        if not course:
+            return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CourseSerializer(course)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request, pk):
+        # Extra check - only admins can edit
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can modify courses."}, 
+                            status=status.HTTP_403_FORBIDDEN)
+            
+        course = self.get_object(pk)
+        if not course:
+            return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CourseSerializer(course, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk):
+        # Extra check - only admins can delete
+        if not (request.user.is_staff or request.user.role == 'ADMIN'):
+            return Response({"detail": "Only admin users can delete courses."}, 
+                           status=status.HTTP_403_FORBIDDEN)
+            
+        course = self.get_object(pk)
+        if not course:
+            return Response({"detail": "Course not found"}, status=status.HTTP_404_NOT_FOUND)
+        course.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class CourseCreateView(APIView):
     permission_classes = [IsAdminUser]  # Requires admin user
@@ -369,30 +574,6 @@ def get_staff_issues(request, user_id):
 #         return Response(data)
 
 # New Views for HOD access - Add these at the end of the file
-class DepartmentDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get(self, request, pk):
-        try:
-            # Get the department
-            department = Department.objects.get(pk=pk)
-            
-            # Check if user is admin or HOD of this department
-            user = request.user
-            if not user.is_staff and not (hasattr(user, 'role') and user.role == 'HOD' and user.department and str(user.department.id) == str(pk)):
-                return Response(
-                    {"detail": "You do not have permission to access this department's data."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            
-            serializer = DepartmentSerializer(department)
-            return Response(serializer.data)
-        except Department.DoesNotExist:
-            return Response(
-                {"detail": "Department not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
 class DepartmentIssuesView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     
@@ -409,9 +590,9 @@ class DepartmentIssuesView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Get issues for courses in this department
-            courses = Course.objects.filter(department=department)
-            department_issues = Issue.objects.filter(course__in=courses)
+            # Get issues for this department
+            department_courses = Course.objects.filter(department=department)
+            department_issues = Issue.objects.filter(course__in=department_courses)
             
             serializer = IssueSerializer(department_issues, many=True)
             return Response(serializer.data)
@@ -649,3 +830,46 @@ def hod_assign_issue(request, dept_id, issue_id):
             {"detail": str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+# Add this separately for HOD access
+class HODDepartmentDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            # Get the department
+            department = Department.objects.get(pk=pk)
+            
+            # Check if user is admin or HOD of this department
+            user = request.user
+            # For admin and staff, allow access to any department
+            if user.is_staff or user.role == 'ADMIN':
+                serializer = DepartmentSerializer(department)
+                return Response(serializer.data)
+                
+            # For HOD, check if they are HOD of this specific department
+            if hasattr(user, 'role') and user.role == 'HOD':
+                if hasattr(user, 'department') and user.department:
+                    if str(user.department.id) == str(pk):
+                        serializer = DepartmentSerializer(department)
+                        return Response(serializer.data)
+                    else:
+                        return Response(
+                            {"detail": f"You are HOD of department {user.department.id}, not department {pk}."},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
+                else:
+                    return Response(
+                        {"detail": "You are not assigned to any department."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            
+            return Response(
+                {"detail": "You do not have permission to access this department's data."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        except Department.DoesNotExist:
+            return Response(
+                {"detail": "Department not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )

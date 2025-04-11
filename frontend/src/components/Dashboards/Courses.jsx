@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Modal, Button, Form, Table } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { getCourses, getDepartments, createCourse, getUsers } from "../../services/api";
-import { FaBook, FaBuilding, FaUserGraduate, FaPlus, FaCode, FaInfoCircle } from "react-icons/fa";
+import { getCourses, getDepartments, createCourse, updateCourse, deleteCourse, getUsers } from "../../services/api";
+import { FaBook, FaBuilding, FaUserGraduate, FaPlus, FaCode, FaInfoCircle, FaEdit, FaTrash } from "react-icons/fa";
 
 const Courses = () => {
   const [courses, setCourses] = useState([]);
@@ -18,6 +18,10 @@ const Courses = () => {
   const [success, setSuccess] = useState(null);
   const [studentCount, setStudentCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [courseToEdit, setCourseToEdit] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [courseToDelete, setCourseToDelete] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -52,6 +56,52 @@ const Courses = () => {
     }));
   };
 
+  const handleEditCourse = (course) => {
+    setCourseToEdit(course);
+    setEditMode(true);
+    setFormData({
+      course_name: course.course_name,
+      course_code: course.course_code,
+      details: course.details || "",
+      department: course.department?.id || course.department || ""
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteClick = (course) => {
+    setCourseToDelete(course);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!courseToDelete) return;
+    
+    try {
+      await deleteCourse(courseToDelete.id);
+      
+      // Update local state
+      setCourses(courses.filter(c => c.id !== courseToDelete.id));
+      setSuccess("Course deleted successfully!");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (error) {
+      setError("Failed to delete course. There might be issues associated with it.");
+    } finally {
+      setShowDeleteModal(false);
+      setCourseToDelete(null);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      course_name: "",
+      course_code: "",
+      details: "",
+      department: ""
+    });
+    setEditMode(false);
+    setCourseToEdit(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -64,28 +114,35 @@ const Courses = () => {
     }
 
     try {
-      const newCourse = await createCourse(formData);
+      if (editMode && courseToEdit) {
+        // Update existing course
+        const updatedCourse = await updateCourse(courseToEdit.id, formData);
+        
+        // Update the local state with the updated course
+        setCourses(courses.map(course => 
+          course.id === courseToEdit.id ? updatedCourse : course
+        ));
+        
+        setSuccess("Course updated successfully!");
+      } else {
+        // Create new course
+        const newCourse = await createCourse(formData);
+        
+        // Update the local state with the new course
+        setCourses((prev) => [...prev, newCourse]);
+        
+        setSuccess("Course created successfully!");
+      }
       
-      // Update the local state with the new course
-      setCourses((prev) => [...prev, newCourse]);
-      
-      // Reset form and show success
-      setFormData({
-        course_name: "",
-        course_code: "",
-        details: "",
-        department: ""
-      });
-      setSuccess("Course created successfully!");
-      
-      // Close modal after a short delay to show the success message
+      // Reset form and close modal after a short delay to show the success message
       setTimeout(() => {
         setIsModalOpen(false);
+        resetForm();
         setSuccess(null);
       }, 1500);
     } catch (err) {
-      console.error("Failed to create course", err);
-      setError(err.response?.data?.detail || "Failed to create course. Please try again.");
+      console.error("Failed to save course", err);
+      setError(err.response?.data?.detail || "Failed to save course. Please try again.");
     }
   };
 
@@ -94,6 +151,12 @@ const Courses = () => {
       {error && (
         <div className="alert alert-danger mx-3 mt-3" role="alert">
           {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="alert alert-success mx-3 mt-3" role="alert">
+          {success}
         </div>
       )}
 
@@ -153,7 +216,10 @@ const Courses = () => {
           <div className="card">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="mb-0"><FaBook className="me-2" />Courses</h5>
-              <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+              <Button variant="primary" onClick={() => {
+                resetForm();
+                setIsModalOpen(true);
+              }}>
                 <FaPlus className="me-1" /> Add Course
               </Button>
             </div>
@@ -171,6 +237,7 @@ const Courses = () => {
                       <th><FaBook className="me-1" /> Course Name</th>
                       <th><FaBuilding className="me-1" /> Department</th>
                       <th><FaInfoCircle className="me-1" /> Description</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -180,6 +247,23 @@ const Courses = () => {
                         <td>{course.course_name}</td>
                         <td>{course.department_name || "N/A"}</td>
                         <td>{course.details || "-"}</td>
+                        <td>
+                          <Button 
+                            variant="info" 
+                            size="sm" 
+                            className="me-1"
+                            onClick={() => handleEditCourse(course)}
+                          >
+                            <FaEdit /> Edit
+                          </Button>
+                          <Button 
+                            variant="danger" 
+                            size="sm"
+                            onClick={() => handleDeleteClick(course)}
+                          >
+                            <FaTrash /> Delete
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -190,18 +274,22 @@ const Courses = () => {
         </>
       )}
 
-      {/* Add Course Modal */}
+      {/* Add/Edit Course Modal */}
       <Modal
         show={isModalOpen}
         onHide={() => {
           setIsModalOpen(false);
+          resetForm();
           setError(null);
           setSuccess(null);
         }}
         backdrop="static"
       >
         <Modal.Header closeButton>
-          <Modal.Title><FaBook className="me-2" />Add New Course</Modal.Title>
+          <Modal.Title>
+            <FaBook className="me-2" />
+            {editMode ? 'Edit Course' : 'Add New Course'}
+          </Modal.Title>
         </Modal.Header>
 
         <Modal.Body>
@@ -272,15 +360,41 @@ const Courses = () => {
             </Form.Group>
 
             <div className="d-flex justify-content-end">
-              <Button variant="secondary" className="me-2" onClick={() => setIsModalOpen(false)}>
+              <Button variant="secondary" className="me-2" onClick={() => {
+                setIsModalOpen(false);
+                resetForm();
+              }}>
                 Cancel
               </Button>
               <Button variant="success" type="submit">
-                Create Course
+                {editMode ? 'Update Course' : 'Create Course'}
               </Button>
             </div>
           </Form>
         </Modal.Body>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Confirm Delete</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {courseToDelete && (
+            <p>
+              Are you sure you want to delete the course "{courseToDelete.course_name}" ({courseToDelete.course_code})? 
+              This action cannot be undone and may affect issues associated with this course.
+            </p>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={confirmDelete}>
+            Delete
+          </Button>
+        </Modal.Footer>
       </Modal>
     </div>
   );
