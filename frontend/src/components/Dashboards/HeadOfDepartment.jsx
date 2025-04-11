@@ -370,6 +370,9 @@ const HeadOfDepartment = ({ user }) => {
       }
       
       if (Array.isArray(departmentIssues) && departmentIssues.length > 0) {
+        // Log the status values to help with debugging
+        console.log("Issue statuses in response:", departmentIssues.map(issue => issue.status));
+        
         setDepartmentIssues(departmentIssues);
         calculateIssueStats(departmentIssues);
         hasDirectData = true;
@@ -460,6 +463,9 @@ const HeadOfDepartment = ({ user }) => {
         console.error("Error fetching department issues:", issuesError);
         setFetchingError(prevError => prevError ? `${prevError}; ${issuesError}` : issuesError);
       } else if (issues && Array.isArray(issues)) {
+        // Log the status values to help with debugging
+        console.log("Issue statuses in response:", issues.map(issue => issue.status));
+        
         setDepartmentIssues(issues);
         calculateIssueStats(issues);
       }
@@ -709,12 +715,12 @@ const HeadOfDepartment = ({ user }) => {
     issues.forEach(issue => {
       if (!issue) return; // Skip if issue is null/undefined
       
-      // Handle different status formats (lowercase with underscore or capitalized with spaces)
-      const status = issue.status ? issue.status.toLowerCase() : '';
+      // Convert status to lowercase and normalize it for consistent comparison
+      const status = issue.status ? issue.status.toLowerCase().replace(/\s+/g, '') : '';
       
-      if (status === 'pending' || status === 'pending approval') {
+      if (status === 'pending' || status === 'pendingapproval') {
         stats.pending++;
-      } else if (status === 'in_progress' || status === 'in progress') {
+      } else if (status === 'in_progress' || status === 'inprogress') {
         stats.inProgress++;
       } else if (status === 'solved' || status === 'resolved' || status === 'closed') {
         stats.solved++;
@@ -747,19 +753,20 @@ const HeadOfDepartment = ({ user }) => {
       issue && (issue.assigned_to?.id === staffId || issue.assigned_to === staffId)
     ).length;
     
+    // Convert status to lowercase and normalize it for consistent comparison
     const solvedCount = departmentIssues.filter(issue => 
       issue && (issue.assigned_to?.id === staffId || issue.assigned_to === staffId) && 
-      issue.status && (issue.status.toLowerCase() === 'solved' || issue.status.toLowerCase() === 'resolved')
+      issue.status && (issue.status.toLowerCase().replace(/\s+/g, '') === 'solved' || issue.status.toLowerCase().replace(/\s+/g, '') === 'resolved')
     ).length;
     
     const inProgressCount = departmentIssues.filter(issue => 
       issue && (issue.assigned_to?.id === staffId || issue.assigned_to === staffId) && 
-      issue.status && (issue.status.toLowerCase() === 'in_progress' || issue.status.toLowerCase() === 'in progress')
+      issue.status && (issue.status.toLowerCase().replace(/\s+/g, '') === 'inprogress' || issue.status.toLowerCase().replace(/\s+/g, '') === 'in_progress')
     ).length;
     
     const pendingCount = departmentIssues.filter(issue => 
       issue && (issue.assigned_to?.id === staffId || issue.assigned_to === staffId) && 
-      issue.status && (issue.status.toLowerCase() === 'pending')
+      issue.status && issue.status.toLowerCase().replace(/\s+/g, '') === 'pending'
     ).length;
     
     const total = staffIssuesCount;
@@ -776,6 +783,42 @@ const HeadOfDepartment = ({ user }) => {
       inProgressPercentage,
       pendingPercentage
     };
+  };
+
+  // Function to get the appropriate badge color based on issue status
+  const getStatusBadgeVariant = (status) => {
+    if (!status) return 'secondary';
+    
+    // Normalize status for comparison
+    const normalizedStatus = status.toLowerCase().replace(/\s+/g, '');
+    
+    if (normalizedStatus === 'solved' || normalizedStatus === 'resolved' || normalizedStatus === 'closed') {
+      return 'success';
+    } else if (normalizedStatus === 'inprogress' || normalizedStatus === 'in_progress') {
+      return 'info';
+    } else if (normalizedStatus === 'pending' || normalizedStatus === 'pendingapproval') {
+      return 'warning';
+    } else {
+      return 'secondary';
+    }
+  };
+
+  // Function to get formatted status label for display
+  const getFormattedStatus = (status) => {
+    if (!status) return 'Unknown';
+    
+    // Normalize status for comparison
+    const normalizedStatus = status.toLowerCase().replace(/\s+/g, '');
+    
+    if (normalizedStatus === 'solved' || normalizedStatus === 'resolved' || normalizedStatus === 'closed') {
+      return 'Solved';
+    } else if (normalizedStatus === 'inprogress' || normalizedStatus === 'in_progress') {
+      return 'In Progress';
+    } else if (normalizedStatus === 'pending' || normalizedStatus === 'pendingapproval') {
+      return 'Pending';
+    } else {
+      return status; // Return original if not matching any known format
+    }
   };
 
   // Function to render dashboard content
@@ -911,8 +954,8 @@ const HeadOfDepartment = ({ user }) => {
                     <BsPersonCheck />
                   </div>
                   <div className="ms-3">
-                    <h6 className="card-subtitle text-muted">Assigned Issues</h6>
-                    <h4 className="card-title mb-0">{issueStats.total - issueStats.unassigned}</h4>
+                    <h6 className="card-subtitle text-muted">In Progress</h6>
+                    <h4 className="card-title mb-0">{issueStats.inProgress}</h4>
                   </div>
                 </div>
               </Card.Body>
@@ -1035,12 +1078,8 @@ const HeadOfDepartment = ({ user }) => {
                       >
                         <div className="d-flex justify-content-between">
                           <h6 className="mb-1">{issue.title}</h6>
-                          <BootstrapBadge bg={
-                            issue.status?.toLowerCase() === 'solved' || issue.status?.toLowerCase() === 'resolved' ? 'success' :
-                            issue.status?.toLowerCase() === 'in_progress' || issue.status?.toLowerCase() === 'in progress' ? 'info' :
-                            'warning'
-                          }>
-                            {issue.status}
+                          <BootstrapBadge bg={getStatusBadgeVariant(issue.status)}>
+                            {getFormattedStatus(issue.status)}
                           </BootstrapBadge>
                         </div>
                         <div className="text-muted small mb-1">
@@ -1179,12 +1218,8 @@ const HeadOfDepartment = ({ user }) => {
                   <span className="text-danger">Unassigned</span>}
               </td>
               <td>
-                <BootstrapBadge bg={
-                  issue.status?.toLowerCase() === 'solved' || issue.status?.toLowerCase() === 'resolved' ? 'success' :
-                  issue.status?.toLowerCase() === 'in_progress' || issue.status?.toLowerCase() === 'in progress' ? 'info' :
-                  'warning'
-                }>
-                  {issue.status}
+                <BootstrapBadge bg={getStatusBadgeVariant(issue.status)}>
+                  {getFormattedStatus(issue.status)}
                 </BootstrapBadge>
               </td>
               <td>{moment(issue.created_at).format('MMM D, YYYY')}</td>
@@ -1616,12 +1651,8 @@ const HeadOfDepartment = ({ user }) => {
                   <tr>
                     <td><strong>Status</strong></td>
                     <td>
-                      <BootstrapBadge bg={
-                        selectedIssue.status?.toLowerCase() === 'solved' || selectedIssue.status?.toLowerCase() === 'resolved' ? 'success' :
-                        selectedIssue.status?.toLowerCase() === 'in_progress' || selectedIssue.status?.toLowerCase() === 'in progress' ? 'info' :
-                        'warning'
-                      }>
-                        {selectedIssue.status}
+                      <BootstrapBadge bg={getStatusBadgeVariant(selectedIssue.status)}>
+                        {getFormattedStatus(selectedIssue.status)}
                       </BootstrapBadge>
                     </td>
                   </tr>
@@ -1676,8 +1707,9 @@ const HeadOfDepartment = ({ user }) => {
               </div>
               
               <div className="d-flex justify-content-end mt-4 gap-2">
-                {selectedIssue.status?.toLowerCase() !== 'solved' && 
-                  selectedIssue.status?.toLowerCase() !== 'resolved' && (
+                {selectedIssue.status && 
+                  !(selectedIssue.status.toLowerCase().replace(/\s+/g, '') === 'solved' || 
+                    selectedIssue.status.toLowerCase().replace(/\s+/g, '') === 'resolved') && (
                   <Button 
                     variant="success" 
                     onClick={() => handleMarkAsSolved(selectedIssue.id)}
@@ -1751,7 +1783,9 @@ const HeadOfDepartment = ({ user }) => {
                       <Col>
                         <Card className="text-center mb-3 bg-warning text-white">
                           <Card.Body>
-                            <h5>{staffIssues.filter(issue => issue.status?.toLowerCase() === 'pending').length}</h5>
+                            <h5>{staffIssues.filter(issue => 
+                              issue.status && issue.status.toLowerCase().replace(/\s+/g, '') === 'pending'
+                            ).length}</h5>
                             <Card.Text>Pending</Card.Text>
                           </Card.Body>
                         </Card>
@@ -1760,8 +1794,10 @@ const HeadOfDepartment = ({ user }) => {
                         <Card className="text-center mb-3 bg-info text-white">
                           <Card.Body>
                             <h5>{staffIssues.filter(issue => 
-                              issue.status?.toLowerCase() === 'in_progress' || 
-                              issue.status?.toLowerCase() === 'in progress'
+                              issue.status && (
+                                issue.status.toLowerCase().replace(/\s+/g, '') === 'inprogress' || 
+                                issue.status.toLowerCase().replace(/\s+/g, '') === 'in_progress'
+                              )
                             ).length}</h5>
                             <Card.Text>In Progress</Card.Text>
                           </Card.Body>
@@ -1771,8 +1807,10 @@ const HeadOfDepartment = ({ user }) => {
                         <Card className="text-center mb-3 bg-success text-white">
                           <Card.Body>
                             <h5>{staffIssues.filter(issue => 
-                              issue.status?.toLowerCase() === 'solved' || 
-                              issue.status?.toLowerCase() === 'resolved'
+                              issue.status && (
+                                issue.status.toLowerCase().replace(/\s+/g, '') === 'solved' || 
+                                issue.status.toLowerCase().replace(/\s+/g, '') === 'resolved'
+                              )
                             ).length}</h5>
                             <Card.Text>Solved</Card.Text>
                           </Card.Body>
@@ -1795,12 +1833,8 @@ const HeadOfDepartment = ({ user }) => {
                           <td>{issue.id}</td>
                           <td>{issue.title}</td>
                           <td>
-                            <BootstrapBadge bg={
-                              issue.status?.toLowerCase() === 'solved' || issue.status?.toLowerCase() === 'resolved' ? 'success' :
-                              issue.status?.toLowerCase() === 'in_progress' || issue.status?.toLowerCase() === 'in progress' ? 'info' :
-                              'warning'
-                            }>
-                              {issue.status}
+                            <BootstrapBadge bg={getStatusBadgeVariant(issue.status)}>
+                              {getFormattedStatus(issue.status)}
                             </BootstrapBadge>
                           </td>
                           <td>{moment(issue.created_at).format('MMM D, YYYY')}</td>
