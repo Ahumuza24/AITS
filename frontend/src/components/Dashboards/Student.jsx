@@ -7,8 +7,15 @@ import {
   FaClipboardList,
   FaTools,
   FaBell,
-  FaPlus
+  FaPlus,
+  FaExclamationTriangle,
+  FaCalendarAlt,
+  FaInfoCircle,
+  FaTag,
+  FaEye,
+  FaPencilAlt
 } from "react-icons/fa";
+import { BsCheck2Circle, BsClockHistory, BsHourglassSplit } from "react-icons/bs";
 import StudentsIssues from "../Issues/StudentsIssues";
 import "./admin.css";
 import Popper from "@mui/material/Popper";
@@ -23,6 +30,8 @@ import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
 import { styled } from "@mui/material/styles";
 import { Modal, Button, Form } from "react-bootstrap";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Pie } from 'react-chartjs-2';
 
 const ReadNotification = styled(ListItemButton)({
   backgroundColor: "#f0f0f0", // Light gray background
@@ -143,8 +152,18 @@ const Student = ({ user }) => {
     }
   };
 
+  const getUserInitials = () => {
+    if (user?.first_name && user?.last_name) {
+      return `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`;
+    } else if (user?.username) {
+      return user.username.charAt(0).toUpperCase();
+    } else {
+      return "U";
+    }
+  };
+
   return (
-    <div className="admin-layout">
+    <div className="admin-layout student-dashboard">
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">Student Dashboard</div>
@@ -159,6 +178,11 @@ const Student = ({ user }) => {
               <span>{item.label}</span>
             </div>
           ))}
+          <div className="sidebar-divider"></div>
+          <div className="nav-item logout" onClick={handleLogout}>
+            <span className="nav-icon"><FaExclamationTriangle /></span>
+            <span>Logout</span>
+          </div>
         </nav>
       </div>
 
@@ -170,13 +194,9 @@ const Student = ({ user }) => {
               "Dashboard"}
           </h1>
           <div className="header-actions">
-            <div className="flex items-center space-x-4">
-              <span className="user-name">
-                {user.last_name || user.username}
-              </span>
-              <button className="log_out" onClick={handleLogout}>
-                Logout
-              </button>
+            {/* User Avatar */}
+            <div className="user-avatar" title={user?.first_name ? `${user.first_name} ${user.last_name}` : user?.username || "User"}>
+              {getUserInitials()}
             </div>
 
             {/* Notification Button with Badge */}
@@ -261,6 +281,44 @@ const DashboardContent = ({ user, myIssues }) => {
   const inProgressIssues = myIssues.filter(issue => issue.status === 'InProgress').length;
   const resolvedIssues = myIssues.filter(issue => issue.status === 'Solved').length;
 
+  // Data for the pie chart
+  const chartData = {
+    labels: ['Pending', 'In Progress', 'Resolved'],
+    datasets: [
+      {
+        data: [pendingIssues, inProgressIssues, resolvedIssues],
+        backgroundColor: ['#ffc107', '#0d6efd', '#198754'],
+        borderWidth: 0,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          padding: 20,
+          usePointStyle: true,
+          pointStyle: 'circle'
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            const label = context.label || '';
+            const value = context.raw || 0;
+            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+            const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+            return `${label}: ${value} (${percentage}%)`;
+          }
+        }
+      }
+    },
+  };
+
   // Get 5 most recent issues
   const recentIssues = [...myIssues]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -341,17 +399,46 @@ const DashboardContent = ({ user, myIssues }) => {
   return (
     <div>
       <div className="dashboard-grid">
-        <div className="card">
-          <h2 className="card-title">Total Issues</h2>
-          <p className="card-value">{myIssues.length}</p>
+        <div className="card dashboard-card">
+          <div className="card-body">
+            <div className="d-flex align-items-center">
+              <div className="icon-box bg-primary">
+                <FaClipboardList />
+              </div>
+              <div className="ms-3">
+                <h6 className="card-subtitle text-muted">Total Issues</h6>
+                <h4 className="card-title mb-0">{myIssues.length}</h4>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="card">
-          <h2 className="card-title">In Progress</h2>
-          <p className="card-value">{inProgressIssues}</p>
+
+        <div className="card dashboard-card">
+          <div className="card-body">
+            <div className="d-flex align-items-center">
+              <div className="icon-box bg-warning">
+                <BsClockHistory />
+              </div>
+              <div className="ms-3">
+                <h6 className="card-subtitle text-muted">In Progress</h6>
+                <h4 className="card-title mb-0">{inProgressIssues}</h4>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="card">
-          <h2 className="card-title">Resolved Issues</h2>
-          <p className="card-value">{resolvedIssues}</p>
+
+        <div className="card dashboard-card">
+          <div className="card-body">
+            <div className="d-flex align-items-center">
+              <div className="icon-box bg-success">
+                <BsCheck2Circle />
+              </div>
+              <div className="ms-3">
+                <h6 className="card-subtitle text-muted">Resolved Issues</h6>
+                <h4 className="card-title mb-0">{resolvedIssues}</h4>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -411,29 +498,37 @@ const DashboardContent = ({ user, myIssues }) => {
           <div className="card">
             <h2 className="card-title p-3">Issue Status</h2>
             <div className="p-3">
-              <div className="chart-container">
-                <div className="chart-bar" style={{ height: '200px' }}>
-                  <div className="chart-column">
-                    <div className="chart-bar-fill bg-warning" style={{ 
-                      height: myIssues.length ? `${(pendingIssues / myIssues.length) * 100}%` : '0%' 
-                    }}></div>
-                    <span className="chart-label">Pending</span>
-                    <span className="chart-value">{pendingIssues}</span>
+              {myIssues.length > 0 ? (
+                <div style={{ height: '250px', position: 'relative' }}>
+                  <Pie data={chartData} options={chartOptions} />
+                </div>
+              ) : (
+                <div className="text-center p-4">
+                  <p className="text-muted">No issues data available</p>
+                </div>
+              )}
+              
+              <div className="d-flex justify-content-around mt-3">
+                <div className="text-center">
+                  <div className="d-flex align-items-center justify-content-center">
+                    <BsHourglassSplit className="text-warning me-1" />
+                    <span>Pending</span>
                   </div>
-                  <div className="chart-column">
-                    <div className="chart-bar-fill bg-primary" style={{ 
-                      height: myIssues.length ? `${(inProgressIssues / myIssues.length) * 100}%` : '0%' 
-                    }}></div>
-                    <span className="chart-label">In Progress</span>
-                    <span className="chart-value">{inProgressIssues}</span>
+                  <h4>{pendingIssues}</h4>
+                </div>
+                <div className="text-center">
+                  <div className="d-flex align-items-center justify-content-center">
+                    <BsClockHistory className="text-primary me-1" />
+                    <span>In Progress</span>
                   </div>
-                  <div className="chart-column">
-                    <div className="chart-bar-fill bg-success" style={{ 
-                      height: myIssues.length ? `${(resolvedIssues / myIssues.length) * 100}%` : '0%' 
-                    }}></div>
-                    <span className="chart-label">Resolved</span>
-                    <span className="chart-value">{resolvedIssues}</span>
+                  <h4>{inProgressIssues}</h4>
+                </div>
+                <div className="text-center">
+                  <div className="d-flex align-items-center justify-content-center">
+                    <BsCheck2Circle className="text-success me-1" />
+                    <span>Resolved</span>
                   </div>
+                  <h4>{resolvedIssues}</h4>
                 </div>
               </div>
             </div>
