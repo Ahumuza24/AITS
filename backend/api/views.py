@@ -6,7 +6,8 @@ from rest_framework.response import Response
 from .models import College, Department, Course, Issue
 from .serializers import CollegeSerializer, DepartmentSerializer, CourseSerializer, IssueSerializer, IssueCreateSerializer
 from rest_framework.permissions import IsAdminUser, AllowAny
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action
+from rest_framework.decorators import api_view, permission_classes
 
 class CollegeListView(APIView):
     permission_classes = [AllowAny]
@@ -115,22 +116,12 @@ class IssueViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        This view should return:
-        1. All issues for staff users
-        2. Own issues for students
-        3. Assigned issues for lecturers/HODs
+        This view should return a list of all issues for the currently authenticated user,
+        or all issues for staff users.
         """
         user = self.request.user
-        
-        # Staff can see all issues
         if user.is_staff:
             return Issue.objects.all()
-            
-        # Lecturers/HODs can see issues assigned to them
-        if hasattr(user, 'role') and user.role in ['LECTURER', 'HOD']:
-            return Issue.objects.filter(assigned_to=user)
-            
-        # Students can see their own issues
         return Issue.objects.filter(student=user)
     
     def get_serializer_class(self):
@@ -228,6 +219,134 @@ class IssueViewSet(viewsets.ModelViewSet):
                 {"detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_staff_issues(request, user_id):
+    try:
+        # Check if the requesting user is the same as the user_id, an admin, or an HOD
+        is_admin = request.user.is_staff
+        is_self = str(request.user.id) == str(user_id)
+        is_hod_of_same_dept = (
+            hasattr(request.user, 'role') and 
+            request.user.role == 'HOD' and 
+            hasattr(request.user, 'department') and 
+            request.user.department
+        )
+        
+        if not (is_admin or is_self or is_hod_of_same_dept):
+            return Response(
+                {"detail": "You do not have permission to access this user's issues."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get the staff user
+        from users.models import User
+        staff_user = User.objects.get(pk=user_id)
+        
+        # Get issues assigned to this staff member
+        staff_issues = Issue.objects.filter(assigned_to=staff_user)
+        
+        # If an HOD is requesting, ensure they can only see issues from their department
+        if is_hod_of_same_dept and not is_admin:
+            # Get courses in HOD's department
+            dept_courses = Course.objects.filter(department=request.user.department)
+            # Filter issues to only include those for courses in the HOD's department
+            staff_issues = staff_issues.filter(course__in=dept_courses)
+        
+        serializer = IssueSerializer(staff_issues, many=True)
+        return Response(serializer.data)
+    except User.DoesNotExist:
+        return Response(
+            {"detail": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+# class StudentDashboardView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+    
+#     def get(self, request):
+#         if not request.user.is_student():
+#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        
+#         # Mock data for student dashboard
+#         data = {
+#             "courses": [
+#                 {"id": 1, "title": "Introduction to Programming", "grade": "A-"},
+#                 {"id": 2, "title": "Data Structures", "grade": "B+"},
+#                 {"id": 3, "title": "Algorithms", "grade": "In Progress"}
+#             ],
+#             "announcements": [
+#                 {"id": 1, "title": "Exam Schedule Posted", "date": "2025-03-05"},
+#                 {"id": 2, "title": "Lab Submission Deadline Extended", "date": "2025-03-08"}
+#             ],
+#             "upcoming_deadlines": [
+#                 {"id": 1, "title": "Programming Assignment 3", "due_date": "2025-03-15"},
+#                 {"id": 2, "title": "Group Project Proposal", "due_date": "2025-03-20"}
+#             ]
+#         }
+#         return Response(data)
+
+# class LecturerDashboardView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+    
+#     def get(self, request):
+#         if not request.user.is_lecturer():
+#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        
+#         # Mock data for lecturer dashboard
+#         data = {
+#             "courses": [
+#                 {"id": 1, "title": "Introduction to Programming", "students": 45},
+#                 {"id": 2, "title": "Advanced Web Development", "students": 30}
+#             ],
+#             "upcoming_classes": [
+#                 {"id": 1, "course": "Introduction to Programming", "time": "Monday, 10:00 AM"},
+#                 {"id": 2, "course": "Advanced Web Development", "time": "Wednesday, 2:00 PM"}
+#             ],
+#             "pending_grading": [
+#                 {"id": 1, "title": "Assignment 2", "submissions": 42, "course": "Introduction to Programming"},
+#                 {"id": 2, "title": "Midterm Exam", "submissions": 28, "course": "Advanced Web Development"}
+#             ]
+#         }
+#         return Response(data)
+
+# class AdminDashboardView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+    
+#     def get(self, request):
+#         if not request.user.is_admin():
+#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        
+#         # Mock data for admin dashboard
+#         data = {
+#             "users": {
+#                 "total": 540,
+#                 "students": 500,
+#                 "lecturers": 35,
+#                 "admins": 5
+#             },
+#             "courses": {
+#                 "active": 42,
+#                 "archived": 15
+#             },
+#             "system_health": {
+#                 "status": "Good",
+#                 "uptime": "99.8%",
+#                 "recent_issues": []
+#             },
+#             "recent_activities": [
+#                 {"id": 1, "type": "User Registration", "details": "5 new users registered", "date": "2025-03-08"},
+#                 {"id": 2, "type": "Course Created", "details": "New course: Machine Learning", "date": "2025-03-07"},
+#                 {"id": 3, "type": "Grade Update", "details": "Introduction to Programming grades posted", "date": "2025-03-06"}
+#             ]
+#         }
+#         return Response(data)
 
 # New Views for HOD access - Add these at the end of the file
 class DepartmentDetailView(APIView):
@@ -342,8 +461,6 @@ class DepartmentCoursesView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-from rest_framework.decorators import api_view, permission_classes
-
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_user_department(request, user_id):
@@ -378,83 +495,137 @@ def get_user_department(request, user_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
-# class StudentDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-    
-#     def get(self, request):
-#         if not request.user.is_student():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_staff_issues(request, user_id):
+    try:
+        # Check if the requesting user is the same as the user_id, an admin, or an HOD
+        is_admin = request.user.is_staff
+        is_self = str(request.user.id) == str(user_id)
+        is_hod_of_same_dept = (
+            hasattr(request.user, 'role') and 
+            request.user.role == 'HOD' and 
+            hasattr(request.user, 'department') and 
+            request.user.department
+        )
         
-#         # Mock data for student dashboard
-#         data = {
-#             "courses": [
-#                 {"id": 1, "title": "Introduction to Programming", "grade": "A-"},
-#                 {"id": 2, "title": "Data Structures", "grade": "B+"},
-#                 {"id": 3, "title": "Algorithms", "grade": "In Progress"}
-#             ],
-#             "announcements": [
-#                 {"id": 1, "title": "Exam Schedule Posted", "date": "2025-03-05"},
-#                 {"id": 2, "title": "Lab Submission Deadline Extended", "date": "2025-03-08"}
-#             ],
-#             "upcoming_deadlines": [
-#                 {"id": 1, "title": "Programming Assignment 3", "due_date": "2025-03-15"},
-#                 {"id": 2, "title": "Group Project Proposal", "due_date": "2025-03-20"}
-#             ]
-#         }
-#         return Response(data)
+        if not (is_admin or is_self or is_hod_of_same_dept):
+            return Response(
+                {"detail": "You do not have permission to access this user's issues."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get the staff user
+        from users.models import User
+        staff_user = User.objects.get(pk=user_id)
+        
+        # Get issues assigned to this staff member
+        staff_issues = Issue.objects.filter(assigned_to=staff_user)
+        
+        # If an HOD is requesting, ensure they can only see issues from their department
+        if is_hod_of_same_dept and not is_admin:
+            # Get courses in HOD's department
+            dept_courses = Course.objects.filter(department=request.user.department)
+            # Filter issues to only include those for courses in the HOD's department
+            staff_issues = staff_issues.filter(course__in=dept_courses)
+        
+        serializer = IssueSerializer(staff_issues, many=True)
+        return Response(serializer.data)
+    except User.DoesNotExist:
+        return Response(
+            {"detail": "User not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
-# class LecturerDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-    
-#     def get(self, request):
-#         if not request.user.is_lecturer():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+# Add new HOD-specific issue assignment endpoint
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def hod_assign_issue(request, dept_id, issue_id):
+    """
+    Special endpoint for HODs to assign issues in their department.
+    Only HODs can use this endpoint for their own department issues.
+    """
+    try:
+        # Get the issue and department
+        issue = Issue.objects.get(pk=issue_id)
+        department = Department.objects.get(pk=dept_id)
         
-#         # Mock data for lecturer dashboard
-#         data = {
-#             "courses": [
-#                 {"id": 1, "title": "Introduction to Programming", "students": 45},
-#                 {"id": 2, "title": "Advanced Web Development", "students": 30}
-#             ],
-#             "upcoming_classes": [
-#                 {"id": 1, "course": "Introduction to Programming", "time": "Monday, 10:00 AM"},
-#                 {"id": 2, "course": "Advanced Web Development", "time": "Wednesday, 2:00 PM"}
-#             ],
-#             "pending_grading": [
-#                 {"id": 1, "title": "Assignment 2", "submissions": 42, "course": "Introduction to Programming"},
-#                 {"id": 2, "title": "Midterm Exam", "submissions": 28, "course": "Advanced Web Development"}
-#             ]
-#         }
-#         return Response(data)
-
-# class AdminDashboardView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-    
-#     def get(self, request):
-#         if not request.user.is_admin():
-#             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        # Check if user is HOD of this department
+        user = request.user
+        if not (hasattr(user, 'role') and user.role == 'HOD' and 
+                hasattr(user, 'department') and user.department and 
+                str(user.department.id) == str(dept_id)):
+            return Response(
+                {"detail": "You must be the HOD of this department to assign issues."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
-#         # Mock data for admin dashboard
-#         data = {
-#             "users": {
-#                 "total": 540,
-#                 "students": 500,
-#                 "lecturers": 35,
-#                 "admins": 5
-#             },
-#             "courses": {
-#                 "active": 42,
-#                 "archived": 15
-#             },
-#             "system_health": {
-#                 "status": "Good",
-#                 "uptime": "99.8%",
-#                 "recent_issues": []
-#             },
-#             "recent_activities": [
-#                 {"id": 1, "type": "User Registration", "details": "5 new users registered", "date": "2025-03-08"},
-#                 {"id": 2, "type": "Course Created", "details": "New course: Machine Learning", "date": "2025-03-07"},
-#                 {"id": 3, "type": "Grade Update", "details": "Introduction to Programming grades posted", "date": "2025-03-06"}
-#             ]
-#         }
-#         return Response(data)
+        # Check if issue belongs to a course in the HOD's department
+        course = issue.course
+        if not course or course.department.id != department.id:
+            return Response(
+                {"detail": "This issue does not belong to your department."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get the user_id from request data
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response(
+                {"detail": "User ID is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Get the user to assign the issue to
+            from users.models import User
+            assigned_user = User.objects.get(id=user_id)
+            
+            # Check if the user is a lecturer or HOD from the same department
+            if assigned_user.role not in ['LECTURER', 'HOD']:
+                return Response(
+                    {"detail": "Issues can only be assigned to lecturers or heads of department"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if user belongs to the same department
+            if hasattr(assigned_user, 'department') and assigned_user.department and assigned_user.department.id != department.id:
+                return Response(
+                    {"detail": "You can only assign issues to staff within your department."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Assign the issue
+            issue.assigned_to = assigned_user
+            issue.status = 'InProgress'  # Update status to in progress
+            issue.save()
+            
+            serializer = IssueSerializer(issue)
+            return Response(serializer.data)
+            
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+    except Department.DoesNotExist:
+        return Response(
+            {"detail": "Department not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Issue.DoesNotExist:
+        return Response(
+            {"detail": "Issue not found."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

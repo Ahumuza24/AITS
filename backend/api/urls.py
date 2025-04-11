@@ -19,6 +19,8 @@ from .views import (
     DepartmentStaffView,
     DepartmentCoursesView,
     get_user_department,
+    get_staff_issues,
+    hod_assign_issue,
 )
 
 # Create a router and register our viewsets with it.
@@ -42,7 +44,9 @@ urlpatterns = [
     path('department/<int:pk>/issues/', DepartmentIssuesView.as_view(), name='department-issues'),
     path('department/<int:pk>/staff/', DepartmentStaffView.as_view(), name='department-staff'),
     path('department/<int:pk>/courses/', DepartmentCoursesView.as_view(), name='department-courses'),
+    path('department/<int:dept_id>/issues/<int:issue_id>/assign/', hod_assign_issue, name='hod-assign-issue'),
     path('users/<int:user_id>/department/', get_user_department, name='user-department'),
+    path('users/<int:user_id>/issues/', get_staff_issues, name='staff-issues'),
     
     # Include the router URLs
     path('', include(router.urls)),

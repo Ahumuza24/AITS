@@ -626,15 +626,43 @@ const HeadOfDepartment = ({ user }) => {
 
   // Function to fetch issues for a specific staff member
   const fetchStaffIssues = async (staffId) => {
-    if (!staffId) return;
+    if (!staffId) return [];
     
     try {
-      const { issues, error } = await getLecturerIssues(staffId);
-      if (error) {
-        console.error("Error fetching staff issues:", error);
+      console.log("Fetching issues for staff member with ID:", staffId);
+      
+      // First try using the direct API call
+      try {
+        const response = await fetch(`http://localhost:8000/api/users/${staffId}/issues/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Successfully fetched staff issues via direct API:", data);
+          return data;
+        } else {
+          console.warn("Direct API for staff issues failed with status:", response.status);
+        }
+      } catch (directError) {
+        console.error("Error with direct staff issues API call:", directError);
+      }
+      
+      // Fall back to the legacy API call
+      try {
+        const { issues, error } = await getLecturerIssues(staffId);
+        if (error) {
+          console.error("Error fetching staff issues from legacy API:", error);
+          return [];
+        }
+        console.log("Successfully fetched staff issues via legacy API:", issues);
+        return issues;
+      } catch (legacyError) {
+        console.error("Legacy API call failed:", legacyError);
         return [];
       }
-      return issues;
     } catch (err) {
       console.error("Error in fetchStaffIssues:", err);
       return [];
@@ -652,21 +680,127 @@ const HeadOfDepartment = ({ user }) => {
     setSelectedStaff(staff);
     setStaffDetailsModalOpen(true);
     
-    // Fetch issues assigned to this staff member
-    const issues = await fetchStaffIssues(staff.id);
-    setStaffIssues(issues || []);
+    // Clear previous staff issues before loading new ones
+    setStaffIssues([]);
+    
+    try {
+      // First try to use the dedicated endpoint if available
+      const staffId = staff.id;
+      console.log("Fetching issues for staff with ID:", staffId);
+      
+      // Try the direct API endpoint first
+      try {
+        const response = await fetch(`http://localhost:8000/api/users/${staffId}/issues/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Direct API call for staff issues successful:", data);
+          setStaffIssues(data);
+          return;
+        } else {
+          console.warn("Direct API call for staff issues failed:", response.status);
+        }
+      } catch (error) {
+        console.error("Error with direct API call:", error);
+      }
+      
+      // Fall back to the API function if direct call fails
+      const issues = await fetchStaffIssues(staffId);
+      console.log("Fetched staff issues from fallback method:", issues);
+      setStaffIssues(issues || []);
+      
+      // If that also fails, filter from department issues as last resort
+      if (!issues || issues.length === 0) {
+        console.log("No issues returned from API, filtering from department issues");
+        const filteredIssues = departmentIssues.filter(issue => {
+          if (!issue || !issue.assigned_to) return false;
+          
+          // Handle different possible formats of assigned_to
+          if (typeof issue.assigned_to === 'object') {
+            return String(issue.assigned_to.id) === String(staffId);
+          } else {
+            return String(issue.assigned_to) === String(staffId);
+          }
+        });
+        
+        console.log("Filtered issues from department issues:", filteredIssues);
+        setStaffIssues(filteredIssues);
+      }
+    } catch (err) {
+      console.error("Error fetching staff issues:", err);
+      // As last resort, show an empty array
+      setStaffIssues([]);
+    }
   };
 
   // Function to mark issue as solved
   const handleMarkAsSolved = async (issueId) => {
     setMarkingSolved(true);
     try {
+      console.log("Marking issue as solved:", issueId);
+      
+      // Try direct API call first using fetch
+      try {
+        const response = await fetch(`http://localhost:8000/api/issues/${issueId}/update_status/`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          },
+          body: JSON.stringify({ status: 'Solved' })
+        });
+        
+        if (response.ok) {
+          const updatedIssue = await response.json();
+          console.log("Successfully marked issue as solved:", updatedIssue);
+          
+          // Update the issue in departmentIssues state
+          setDepartmentIssues(prevIssues => 
+            prevIssues.map(issue => 
+              issue.id === issueId ? { ...issue, status: 'Solved' } : issue
+            )
+          );
+          
+          // Recalculate issue stats
+          calculateIssueStats(departmentIssues.map(issue => 
+            issue.id === issueId ? { ...issue, status: 'Solved' } : issue
+          ));
+          
+          // Close the modal
+          setDetailsModalOpen(false);
+          setSelectedIssue(null);
+          return;
+        } else {
+          console.warn("Direct API call failed with status:", response.status);
+          // Continue to fallback
+        }
+      } catch (error) {
+        console.error("Error with direct API call:", error);
+        // Continue to fallback
+      }
+      
+      // Fallback to the imported API function
       await markIssueAsSolved(issueId);
       
-      // Refresh the data
-      setRefreshTrigger(prev => prev + 1);
-      // Close the modal if open
+      // Update the local state manually
+      setDepartmentIssues(prevIssues => 
+        prevIssues.map(issue => 
+          issue.id === issueId ? { ...issue, status: 'Solved' } : issue
+        )
+      );
+      
+      // Recalculate issue stats
+      calculateIssueStats(departmentIssues.map(issue => 
+        issue.id === issueId ? { ...issue, status: 'Solved' } : issue
+      ));
+      
+      // Close the modal
       setDetailsModalOpen(false);
+      setSelectedIssue(null);
     } catch (err) {
       console.error('Error marking issue as solved:', err);
       alert('Failed to update issue status. Please try again.');
@@ -679,16 +813,99 @@ const HeadOfDepartment = ({ user }) => {
   const handleAssignIssue = async (issueId, staffId) => {
     setAssigningIssue(true);
     try {
-      // Assume there's an API function to assign an issue
-      // await assignIssueToStaff(issueId, staffId);
+      console.log(`Attempting to assign issue ${issueId} to staff ${staffId}`);
       
-      // For now, let's just log and refresh
-      console.log(`Assigning issue ${issueId} to staff ${staffId}`);
+      // First try the HOD-specific endpoint if available
+      try {
+        // Try the department-specific assign endpoint for HODs
+        const response = await fetch(`http://localhost:8000/api/department/${departmentDetails.id}/issues/${issueId}/assign/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          },
+          body: JSON.stringify({ user_id: staffId })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Successfully assigned issue via department endpoint:", data);
+          
+          // Update the issue in departmentIssues state
+          setDepartmentIssues(prevIssues => 
+            prevIssues.map(issue => 
+              issue.id === issueId ? { 
+                ...issue, 
+                assigned_to: departmentStaff.find(staff => staff.id === staffId),
+                status: 'InProgress' 
+              } : issue
+            )
+          );
+          
+          // Show success message and close modal
+          alert('Issue assigned successfully');
+          setDetailsModalOpen(false);
+          setRefreshTrigger(prev => prev + 1);
+          return;
+        } else {
+          console.warn("HOD-specific endpoint failed:", await response.text());
+        }
+      } catch (err) {
+        console.warn("Error using HOD-specific endpoint:", err);
+      }
       
-      // Refresh the data
-      setRefreshTrigger(prev => prev + 1);
-      // Close the modal if open
+      // Fallback to standard endpoint
+      const response = await fetch(`http://localhost:8000/api/issues/${issueId}/assign/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ user_id: staffId })
+      });
+      
+      if (!response.ok) {
+        // If using the standard endpoint fails due to permissions, update the UI anyway
+        // but show a message about using admin permission
+        if (response.status === 403) {
+          console.warn("Permission denied using standard endpoint, updating UI only");
+          
+          // Update the UI optimistically even though the backend update failed
+          setDepartmentIssues(prevIssues => 
+            prevIssues.map(issue => 
+              issue.id === issueId ? { 
+                ...issue, 
+                assigned_to: departmentStaff.find(staff => staff.id === staffId),
+                status: 'InProgress' 
+              } : issue
+            )
+          );
+          
+          alert('Issue assigned in UI only. Please notify an admin to apply the change in the database.');
+          setDetailsModalOpen(false);
+          return;
+        }
+        
+        throw new Error(`Failed to assign issue: ${response.status} ${response.statusText}`);
+      }
+      
+      // Update the issue in departmentIssues state
+      setDepartmentIssues(prevIssues => 
+        prevIssues.map(issue => 
+          issue.id === issueId ? { 
+            ...issue, 
+            assigned_to: departmentStaff.find(staff => staff.id === staffId),
+            status: 'InProgress' 
+          } : issue
+        )
+      );
+      
+      // Show success message
+      alert('Issue assigned successfully');
+      
+      // Close the modal if open and refresh data
       setDetailsModalOpen(false);
+      setRefreshTrigger(prev => prev + 1);
     } catch (err) {
       console.error('Error assigning issue:', err);
       alert('Failed to assign issue. Please try again.');
