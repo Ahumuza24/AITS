@@ -592,28 +592,47 @@ const UsersContent = ({ users }) => {
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editUserId, setEditUserId] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [userList, setUserList] = useState([]);
 
+  // Initialize userList with the prop
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
+    setUserList(users);
+  }, [users]);
+
+  // Fetch departments on component mount
+  useEffect(() => {
+    const fetchDepartments = async () => {
       try {
-        // Fetch colleges and departments in parallel
-        const [collegesData, departmentsData] = await Promise.all([
-          getColleges(),
-          getDepartments()
-        ]);
-        setColleges(collegesData);
+        const departmentsData = await getDepartments();
         setDepartments(departmentsData);
       } catch (error) {
-        console.error("Error loading data:", error);
-        setFormError("Failed to load colleges and departments. Please refresh the page.");
+        console.error("Error loading departments:", error);
+      }
+    };
+    
+    fetchDepartments();
+  }, []);
+
+  useEffect(() => {
+    const fetchColleges = async () => {
+      setIsLoading(true);
+      try {
+        const collegesData = await getColleges();
+        setColleges(collegesData);
+      } catch (error) {
+        console.error("Error loading colleges:", error);
+        setFormError("Failed to load colleges. Please refresh the page.");
       } finally {
         setIsLoading(false);
       }
     };
 
     if (showAddUserForm) {
-      fetchData();
+      fetchColleges();
     }
   }, [showAddUserForm]);
 
@@ -625,33 +644,163 @@ const UsersContent = ({ users }) => {
     });
   };
 
+  const handleEditUser = (user) => {
+    setEditMode(true);
+    setEditUserId(user.id);
+    
+    // Find the department code from the departments list
+    let departmentCode = '';
+    if (user.department) {
+      const dept = departments.find(d => 
+        d.id === user.department.id || 
+        d.department_code === user.department.department_code
+      );
+      departmentCode = dept?.department_code || '';
+    }
+    
+    setNewUser({
+      email: user.email,
+      password: "",  // Don't populate password field for security
+      first_name: user.first_name,
+      last_name: user.last_name,
+      phone: user.phone || "",
+      role: user.role,
+      college_code: user.college?.code || "",
+      department_code: departmentCode
+    });
+    setShowAddUserForm(true);
+  };
+
+  const handleDeleteClick = (user) => {
+    setUserToDelete(user);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!userToDelete) return;
+    
+    try {
+      // Make API call to delete user
+      await fetch(`http://localhost:8000/api/users/users/${userToDelete.id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+      
+      // Update local state
+      setUserList(userList.filter(u => u.id !== userToDelete.id));
+      setFormSuccess("User deleted successfully!");
+      setTimeout(() => setFormSuccess(""), 3000);
+    } catch (error) {
+      setFormError("Failed to delete user. Please try again.");
+    } finally {
+      setShowDeleteModal(false);
+      setUserToDelete(null);
+    }
+  };
+
+  const resetForm = () => {
+    setNewUser({
+      email: "",
+      password: "",
+      first_name: "",
+      last_name: "",
+      phone: "",
+      role: "STUDENT",
+      college_code: "",
+      department_code: ""
+    });
+    setEditMode(false);
+    setEditUserId(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError("");
     setFormSuccess("");
 
     try {
-      await register(newUser);
-      setFormSuccess("User created successfully!");
-      setNewUser({
-        email: "",
-        password: "",
-        first_name: "",
-        last_name: "",
-        phone: "",
-        role: "STUDENT",
-        college_code: "",
-        department_code: ""
-      });
-      // Refresh user list
-      window.location.reload();
+      if (editMode) {
+        // Update existing user
+        const userData = { ...newUser };
+        // Only include password if it's provided
+        if (!userData.password) {
+          delete userData.password;
+        }
+        
+        // Make the API call to update the user
+        const response = await fetch(`http://localhost:8000/api/users/users/${editUserId}/`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          },
+          body: JSON.stringify(userData)
+        });
+        
+        if (!response.ok) {
+          throw new Error("Failed to update user");
+        }
+        
+        const updatedUser = await response.json();
+        setFormSuccess("User updated successfully!");
+        
+        // Get the department name for display
+        let departmentObj = null;
+        if (userData.department_code) {
+          const dept = departments.find(d => d.department_code === userData.department_code);
+          if (dept) {
+            departmentObj = {
+              id: dept.id,
+              department_name: dept.department_name,
+              department_code: dept.department_code
+            };
+          }
+        }
+        
+        // Update local state with the department object attached for immediate UI update
+        setUserList(userList.map(u => {
+          if (u.id === editUserId) {
+            return { 
+              ...u, 
+              ...updatedUser,
+              department: departmentObj // Update with the full department object
+            };
+          }
+          return u;
+        }));
+        
+        resetForm();
+        setShowAddUserForm(false);
+      } else {
+        // Create new user
+        const response = await register(newUser);
+        setFormSuccess("User created successfully!");
+        
+        // Update the local state
+        setUserList([...userList, response]);
+        
+        resetForm();
+        setShowAddUserForm(false);
+      }
     } catch (error) {
       setFormError(
         error.response?.data?.details?.email?.[0] || 
         error.response?.data?.department_code || 
         error.response?.data?.detail ||
-        "Error creating user. Please try again."
+        "Error saving user. Please try again."
       );
+    }
+  };
+
+  // Function to refresh the user list
+  const refreshUserList = async () => {
+    try {
+      const updatedUsers = await getUsers();
+      setUserList(updatedUsers);
+    } catch (error) {
+      console.error("Error refreshing user list:", error);
     }
   };
 
@@ -666,7 +815,7 @@ const UsersContent = ({ users }) => {
       </div>
             <div className="ms-3">
               <h6 className="card-subtitle text-muted">Total Admins</h6>
-              <h4 className="card-title mb-0">{users.filter(u => u.role === "ADMIN").length}</h4>
+              <h4 className="card-title mb-0">{userList.filter(u => u.role === "ADMIN").length}</h4>
       </div>
       </div>
     </div>
@@ -680,7 +829,7 @@ const UsersContent = ({ users }) => {
             </div>
             <div className="ms-3">
               <h6 className="card-subtitle text-muted">Total Lecturers</h6>
-              <h4 className="card-title mb-0">{users.filter(u => u.role === "LECTURER").length}</h4>
+              <h4 className="card-title mb-0">{userList.filter(u => u.role === "LECTURER").length}</h4>
             </div>
           </div>
         </div>
@@ -694,7 +843,7 @@ const UsersContent = ({ users }) => {
             </div>
             <div className="ms-3">
               <h6 className="card-subtitle text-muted">Total Students</h6>
-              <h4 className="card-title mb-0">{users.filter(u => u.role === "STUDENT").length}</h4>
+              <h4 className="card-title mb-0">{userList.filter(u => u.role === "STUDENT").length}</h4>
             </div>
           </div>
         </div>
@@ -712,9 +861,16 @@ const UsersContent = ({ users }) => {
           </button>
         </div>
 
+        {formSuccess && !showAddUserForm && (
+          <div className="alert alert-success">{formSuccess}</div>
+        )}
+        {formError && !showAddUserForm && (
+          <div className="alert alert-danger">{formError}</div>
+        )}
+
         {showAddUserForm && (
           <div className="card mb-4 p-3">
-            <h3>Create New User</h3>
+            <h3>{editMode ? "Edit User" : "Create New User"}</h3>
             {formError && <div className="alert alert-danger">{formError}</div>}
             {formSuccess && <div className="alert alert-success">{formSuccess}</div>}
             <form onSubmit={handleSubmit}>
@@ -754,15 +910,20 @@ const UsersContent = ({ users }) => {
                 />
               </div>
               <div className="mb-3">
-                <label className="form-label">Password</label>
+                <label className="form-label">{editMode ? "New Password (leave blank to keep current)" : "Password"}</label>
                 <input
                   type="password"
                   className="form-control"
                   name="password"
                   value={newUser.password}
                   onChange={handleInputChange}
-                  required
+                  required={!editMode}
                 />
+                {editMode && (
+                  <small className="text-muted">
+                    Leave blank to keep current password
+                  </small>
+                )}
               </div>
               <div className="mb-3">
                 <label className="form-label">Phone</label>
@@ -823,7 +984,7 @@ const UsersContent = ({ users }) => {
                     )}
                   </div>
                   
-                  {newUser.role === "HOD" && (
+                  {(
                     <div className="mb-3">
                       <label className="form-label">Department</label>
                       <select
@@ -831,7 +992,7 @@ const UsersContent = ({ users }) => {
                         name="department_code"
                         value={newUser.department_code}
                         onChange={handleInputChange}
-                        required={newUser.role === "HOD"}
+                        required={newUser.role === "HOD" || newUser.role === "LECTURER"}
                       >
                         <option value="">Select Department</option>
                         {departments && departments.length > 0 ? departments.map((department) => (
@@ -852,16 +1013,28 @@ const UsersContent = ({ users }) => {
                 </>
               )}
               
-              <button 
-                type="submit" 
-                className="btn btn-success"
-                disabled={isLoading || 
-                  (newUser.role === "STUDENT" && colleges.length === 0) ||
-                  (newUser.role === "HOD" && departments.length === 0)
-                }
-              >
-                {isLoading ? "Loading..." : "Create User"}
-              </button>
+              <div className="d-flex">
+                <button 
+                  type="button"
+                  className="btn btn-secondary me-2"
+                  onClick={() => {
+                    resetForm();
+                    setShowAddUserForm(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-success"
+                  disabled={isLoading || 
+                    (newUser.role === "STUDENT" && colleges.length === 0) ||
+                    (newUser.role === "HOD" && departments.length === 0)
+                  }
+                >
+                  {isLoading ? "Loading..." : editMode ? "Update User" : "Create User"}
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -873,25 +1046,66 @@ const UsersContent = ({ users }) => {
             <th>Last Name</th>
             <th>Email</th>
             <th>Role</th>
-              <th>Actions</th>
+            <th>Department</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {users.map((user) => (
+          {userList.map((user) => (
             <tr key={user.id}>
               <td>{user.first_name}</td>
               <td>{user.last_name}</td>
               <td>{user.email}</td>
               <td>{user.role}</td>
-                <td>
-                  <button className="btn btn-sm btn-info me-2">Edit</button>
-                  <button className="btn btn-sm btn-danger">Delete</button>
-                </td>
+              <td>
+                {user.department ? 
+                  (typeof user.department === 'object' ? 
+                    user.department.department_name : 
+                    departments.find(d => d.id === user.department)?.department_name || "-") 
+                  : "-"}
+              </td>
+              <td>
+                <button 
+                  className="btn btn-sm btn-info me-2"
+                  onClick={() => handleEditUser(user)}
+                >
+                  <FaPencilAlt className="me-1" /> Edit
+                </button>
+                <button 
+                  className="btn btn-sm btn-danger"
+                  onClick={() => handleDeleteClick(user)}
+                >
+                  <FaExclamationTriangle className="me-1" /> Delete
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </Table>
     </div>
+
+    {/* Delete Confirmation Modal */}
+    <Modal show={showDeleteModal} onHide={() => setShowDeleteModal(false)}>
+      <Modal.Header closeButton>
+        <Modal.Title>Confirm Deletion</Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        {userToDelete && (
+          <p>
+            Are you sure you want to delete {userToDelete.first_name} {userToDelete.last_name}? 
+            This action cannot be undone.
+          </p>
+        )}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
+          Cancel
+        </Button>
+        <Button variant="danger" onClick={confirmDelete}>
+          Delete User
+        </Button>
+      </Modal.Footer>
+    </Modal>
   </div>
 );
 };
